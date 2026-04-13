@@ -2,22 +2,18 @@ import cv2
 import numpy as np
 import mediapipe as mp
 
-# Direct imports are the most stable way in Codespaces
-from mediapipe.tasks import python
-from mediapipe.tasks.python import vision
-
-# If you prefer the solutions API, use this specific naming:
-import mediapipe.python.solutions.face_mesh as mp_face_mesh
+# Use this instead of the deep '.python.solutions' path
+mp_face_mesh = mp.solutions.face_mesh
 
 class EyeStrainDetector:
     def __init__(self):
-        # Initializing FaceMesh directly from the imported module
         self.face_mesh = mp_face_mesh.FaceMesh(
             max_num_faces=1,
             refine_landmarks=True,
             min_detection_confidence=0.5,
             min_tracking_confidence=0.5
         )
+        # Your eye indices remain the same
         self.LEFT_EYE = [362, 385, 387, 263, 373, 380]
         self.RIGHT_EYE = [33, 160, 158, 133, 153, 144]
         
