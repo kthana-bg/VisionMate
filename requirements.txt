@@ -1,8 +1,7 @@
 streamlit
 opencv-python-headless
-mediapipe==0.10.14
 numpy
+mediapipe
 streamlit-webrtc
 av
-protobuf>=3.20,<5
-twilio>=8.0.0 
+twilio
