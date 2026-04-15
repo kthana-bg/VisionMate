@@ -2,7 +2,7 @@ import streamlit as st
 import cv2
 import numpy as np
 from detector import EyeStrainDetector
-from streamlit_webrtc import webrtc_streamer, VideoTransformerBase
+from streamlit_webrtc import webrtc_streamer, VideoTransformerBase, WebRtcMode 
 import av
 
 st.set_page_config(
@@ -120,10 +120,8 @@ if run_monitor:
     with col1:
         ctx = webrtc_streamer(
             key="visionmate-stream",
-            # This makes it start automatically
-            mode=st.WebRtcMode.SENDRECV, 
+            mode=WebRtcMode.SENDRECV, # Fixed: removed the 'st.' prefix
             video_processor_factory=VideoProcessor,
-            # Enhanced network configuration
             rtc_configuration={
                 "iceServers": [
                     {"urls": ["stun:stun.l.google.com:19302"]},
@@ -132,11 +130,7 @@ if run_monitor:
                     {"urls": ["stun:stun.services.mozilla.com"]}
                 ]
             },
-            media_stream_constraints={
-                "video": True, 
-                "audio": False
-            },
-            # This helps the UI stay responsive while the video connects
+            media_stream_constraints={"video": True, "audio": False},
             async_processing=True, 
         )
     
