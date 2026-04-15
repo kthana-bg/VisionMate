@@ -2,7 +2,7 @@ import streamlit as st
 import cv2
 import numpy as np
 from detector import EyeStrainDetector
-from streamlit_webrtc import webrtc_streamer, VideoTransformerBase, WebRtcMode
+from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, WebRtcMode
 import av
 import threading
 import time
@@ -32,8 +32,8 @@ def init_session_state():
         st.session_state.status = "Initializing"
     if "run_monitor" not in st.session_state:
         st.session_state.run_monitor = True
-    if "last_update" not in st.session_state:
-        st.session_state.last_update = time.time()
+    if "frame_count" not in st.session_state:
+        st.session_state.frame_count = 0
 
 init_session_state()
 
@@ -110,7 +110,7 @@ st.markdown("<p style='text-align: center; color: #B0B0B0;'>AI Eye-Strain Monito
 
 col1, col2 = st.columns([1.8, 1])
 
-class VideoProcessor(VideoTransformerBase):
+class VideoProcessor(VideoProcessorBase):
     def __init__(self):
         self.detector = EyeStrainDetector()
         self.threshold = 0.20
@@ -118,18 +118,17 @@ class VideoProcessor(VideoTransformerBase):
         self.current_ear = 0.0
         self.status = "Initializing"
         self.frame_counter = 0
-        self.last_update = time.time()
+        self.lock = threading.Lock()
         
-    def transform(self, frame):
-        try:
-            img = frame.to_ndarray(format="bgr24")
-            img = cv2.flip(img, 1)
-            h, w, _ = img.shape
-            self.frame_counter += 1
-            process_this_frame = (self.frame_counter % 2 == 0)
-            
-            if process_this_frame:
-                ear, landmarks, _ = self.detector.process_frame(img)
+    def recv(self, frame):
+        img = frame.to_ndarray(format="bgr24")
+        img = cv2.flip(img, 1)
+        h, w, _ = img.shape
+        self.frame_counter += 1
+        
+        if self.frame_counter % 2 == 0:
+            ear, landmarks, _ = self.detector.process_frame(img)
+            with self.lock:
                 if ear > 0:
                     current_blinks, _ = self.detector.update_blink_state(ear, self.threshold)
                     self.blink_count = current_blinks
@@ -141,26 +140,27 @@ class VideoProcessor(VideoTransformerBase):
                 else:
                     self.status = "NO FACE"
                     self.current_ear = 0.0
-            
-            if time.time() - self.last_update > 0.3:
-                st.session_state.current_ear = self.current_ear
-                st.session_state.blink_count = self.blink_count
-                st.session_state.status = self.status
-                if self.current_ear > 0:
-                    st.session_state.ear_history = st.session_state.ear_history[1:] + [self.current_ear]
-                st.session_state.last_update = time.time()
-                self.last_update = time.time()
-            
-            if self.status == "HIGH STRAIN":
-                color = (255, 50, 50)
-            elif self.status == "OPTIMAL":
-                color = (50, 255, 150)
-            else:
-                color = (128, 128, 128)
-            cv2.rectangle(img, (0, 0), (w-1, h-1), color, 3)
-            return img
-        except Exception as e:
-            return frame.to_ndarray(format="bgr24")
+        
+        with self.lock:
+            status = self.status
+            current_ear = self.current_ear
+            blink_count = self.blink_count
+        
+        if status == "HIGH STRAIN":
+            color = (255, 50, 50)
+        elif status == "OPTIMAL":
+            color = (50, 255, 150)
+        else:
+            color = (128, 128, 128)
+        cv2.rectangle(img, (0, 0), (w-1, h-1), color, 3)
+        
+        st.session_state.current_ear = current_ear
+        st.session_state.blink_count = blink_count
+        st.session_state.status = status
+        if current_ear > 0 and self.frame_counter % 5 == 0:
+            st.session_state.ear_history = st.session_state.ear_history[1:] + [current_ear]
+        
+        return av.VideoFrame.from_ndarray(img, format="bgr24")
 
 with col2:
     st.subheader("Session Analytics")
@@ -188,7 +188,7 @@ with col1:
         
         try:
             ctx = webrtc_streamer(
-                key="visionmate-auto-v2",
+                key="visionmate-recv-v1",
                 mode=WebRtcMode.SENDRECV,
                 video_processor_factory=VideoProcessor,
                 rtc_configuration=rtc_configuration,
@@ -224,9 +224,9 @@ with col1:
             else:
                 coach_placeholder.info("Remember the 20-20-20 rule")
             
-            if time.time() - st.session_state.last_update > 1:
-                st.rerun()
-                
+            time.sleep(0.5)
+            st.rerun()
+            
         except Exception as e:
             st.error(f"WebRTC Error: {str(e)}")
             st.info("Please check camera permissions and refresh the page.")
