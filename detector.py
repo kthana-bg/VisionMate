@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 import mediapipe as mp
 
-mp_face_mesh = mp.solutions.face_mesh
+import mediapipe.python.solutions.face_mesh as mp_face_mesh
 
 class EyeStrainDetector:
     def __init__(self):
@@ -12,6 +12,7 @@ class EyeStrainDetector:
             min_detection_confidence=0.5,
             min_tracking_confidence=0.5
         )
+        # Your eye indices...
         
         self.LEFT_EYE = [362, 385, 387, 263, 373, 380]
         self.RIGHT_EYE = [33, 160, 158, 133, 153, 144]
