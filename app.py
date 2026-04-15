@@ -83,11 +83,16 @@ def get_ice_servers():
             return token.ice_servers
         except:
             pass
+    
+    # Use only STUN servers (no TURN to avoid 403 errors)
+    # This works if direct peer connection is possible
     return [
         {"urls": ["stun:stun.l.google.com:19302"]},
         {"urls": ["stun:stun1.l.google.com:19302"]},
-        {"urls": ["turn:openrelay.metered.ca:80"], "username": "openrelayproject", "credential": "openrelayproject"},
-        {"urls": ["turn:openrelay.metered.ca:443"], "username": "openrelayproject", "credential": "openrelayproject"}
+        {"urls": ["stun:stun2.l.google.com:19302"]},
+        {"urls": ["stun:stun3.l.google.com:19302"]},
+        {"urls": ["stun:stun4.l.google.com:19302"]},
+        {"urls": ["stun:global.stun.twilio.com:3478"]}
     ]
 
 with st.sidebar:
@@ -181,12 +186,12 @@ with col1:
     
     if st.session_state.run_monitor:
         ice_servers = get_ice_servers()
-        rtc_configuration = {"iceServers": ice_servers, "iceTransportPolicy": "all"}
+        rtc_configuration = {"iceServers": ice_servers}
         media_constraints = {"video": {"width": {"ideal": 640}, "height": {"ideal": 480}, "frameRate": {"ideal": 30}}, "audio": False}
         
         try:
             ctx = webrtc_streamer(
-                key="visionmate-queue-v1",
+                key="visionmate-stun-v1",
                 mode=WebRtcMode.SENDRECV,
                 video_processor_factory=VideoProcessor,
                 rtc_configuration=rtc_configuration,
