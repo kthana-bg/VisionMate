@@ -2,12 +2,11 @@ import cv2
 import numpy as np
 import mediapipe as mp
 
-# We use this specific path to avoid the AttributeError on Linux servers
-from mediapipe.python.solutions import face_mesh as mp_face_mesh
+# Access face_mesh through the main 'mp' object
+mp_face_mesh = mp.solutions.face_mesh
 
 class EyeStrainDetector:
     def __init__(self):
-        # Initialize directly from the imported module
         self.face_mesh = mp_face_mesh.FaceMesh(
             max_num_faces=1,
             refine_landmarks=True,
