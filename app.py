@@ -2,12 +2,13 @@ import streamlit as st
 import cv2
 import numpy as np
 from detector import EyeStrainDetector
-import time
+from streamlit_webrtc import webrtc_streamer, VideoTransformerBase
+import av
 
 st.set_page_config(
-    page_title="VisionMate", 
-    layout="wide", 
-    initial_sidebar_state="expanded" 
+    page_title="VisionMate",
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
 st.markdown("""
@@ -73,86 +74,129 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 with st.sidebar:
-    st.markdown("##VisionMate Control")
+    st.markdown("## VisionMate Control")
     run_monitor = st.checkbox("Enable Live AI Monitor", value=True)
     st.divider()
 
-st.markdown("<h1 style='text-align: center; margin-bottom: 0;'>VISIONMATE</h1>", unsafe_allow_html=True)
+
+# ================= TITLE =================
+st.markdown("<h1 style='text-align: center;'>VISIONMATE</h1>", unsafe_allow_html=True)
 
 col1, col2 = st.columns([1.6, 1])
 
 with col1:
     st.subheader("Live Vision Stream")
-    FRAME_WINDOW = st.image([])
     status_placeholder = st.empty()
 
 with col2:
     st.subheader("Session Analytics")
+
     m_col1, m_col2 = st.columns(2)
+
     with m_col1:
-        st.markdown("<p style='font-size: 12px; opacity: 0.6; letter-spacing: 1px;'>EYE ASPECT RATIO</p>", unsafe_allow_html=True)
+        st.markdown("<p style='font-size:12px;'>EYE ASPECT RATIO</p>", unsafe_allow_html=True)
         ear_placeholder = st.empty()
+
     with m_col2:
-        st.markdown("<p style='font-size: 12px; opacity: 0.6; letter-spacing: 1px;'>TOTAL BLINKS</p>", unsafe_allow_html=True)
+        st.markdown("<p style='font-size:12px;'>TOTAL BLINKS</p>", unsafe_allow_html=True)
         blink_placeholder = st.empty()
 
     st.divider()
     st.subheader("Coach Recommendations")
     suggestions = st.empty()
 
+
+# ================= SESSION STATE =================
+if "blink_total" not in st.session_state:
+    st.session_state.blink_total = 0
+
+if "ear_history" not in st.session_state:
+    st.session_state.ear_history = [0.25] * 40
+
+
+# ================= DETECTOR =================
 @st.cache_resource
 def load_detector():
     return EyeStrainDetector()
 
 detector = load_detector()
 threshold = 0.20
-if 'ear_history' not in st.session_state:
-    st.session_state.ear_history = [0.25] * 40
-if 'blink_total' not in st.session_state:
-    st.session_state.blink_total = 0
 
-if run_monitor:
-    cap = cv2.VideoCapture(0)
-    blink_active = False 
 
-    while run_monitor:
-        ret, frame = cap.read()
-        if not ret: break
-        
-        frame = cv2.flip(frame, 1) 
-        ear, landmarks = detector.process_frame(frame)
-        
-        #data processing
+# ================= VIDEO PROCESSOR =================
+class VideoProcessor(VideoTransformerBase):
+
+    def __init__(self):
+        self.detector = load_detector()
+        self.threshold = 0.20
+        self.blink_active = False
+
+    def transform(self, frame):
+        img = frame.to_ndarray(format="bgr24")
+        img = cv2.flip(img, 1)
+
+        ear, landmarks = self.detector.process_frame(img)
+
+        # update history
         if ear > 0:
             st.session_state.ear_history.append(ear)
             st.session_state.ear_history = st.session_state.ear_history[-40:]
-            
-            #blink logic 
-            if ear < threshold:
-                blink_active = True #eye is currently closed
+
+            # blink detection
+            if ear < self.threshold:
+                self.blink_active = True
             else:
-                if blink_active:
-                    st.session_state.blink_total += 1 #count 1 full blink
-                    blink_active = False #reset the state
+                if self.blink_active:
+                    st.session_state.blink_total += 1
+                    self.blink_active = False
 
-        ear_placeholder.markdown(f"<div class='metric-value'>{ear:.3f}</div>", unsafe_allow_html=True)
-        blink_placeholder.markdown(f"<div class='metric-value'>{st.session_state.blink_total}</div>", unsafe_allow_html=True)
-        
+        # update UI
+        ear_placeholder.markdown(
+            f"<div class='metric-value'>{ear:.3f}</div>",
+            unsafe_allow_html=True
+        )
+
+        blink_placeholder.markdown(
+            f"<div class='metric-value'>{st.session_state.blink_total}</div>",
+            unsafe_allow_html=True
+        )
+
         # coach logic
-        if ear > 0 and ear < threshold:
-            status_placeholder.markdown("<span style='color: #ff4b4b; font-weight: bold;'>STATE: HIGH STRAIN / EYE CLOSED</span>", unsafe_allow_html=True)
-            suggestions.warning("Coach: High eye strain detected. Please focus on an object 20 feet away for 20 seconds.")
+        if ear > 0 and ear < self.threshold:
+            status_placeholder.markdown(
+                "<span style='color:#ff4b4b;font-weight:bold;'>STATE: HIGH STRAIN / EYE CLOSED</span>",
+                unsafe_allow_html=True
+            )
+            suggestions.warning(
+                "Coach: High eye strain detected. Look 20 feet away for 20 seconds."
+            )
+
         elif ear == 0:
-            status_placeholder.markdown("<span style='color: #ffd166;'>STATE: SEARCHING FOR USER...</span>", unsafe_allow_html=True)
+            status_placeholder.markdown(
+                "<span style='color:#ffd166;'>STATE: SEARCHING FOR USER...</span>",
+                unsafe_allow_html=True
+            )
+
         else:
-            status_placeholder.markdown("<span style='color: #06d6a0; font-weight: bold;'>STATE: OPTIMAL FLOW</span>", unsafe_allow_html=True)
-            suggestions.success("Coach: You are doing great! Maintain this blink frequency to avoid CVS.")
+            status_placeholder.markdown(
+                "<span style='color:#06d6a0;font-weight:bold;'>STATE: OPTIMAL FLOW</span>",
+                unsafe_allow_html=True
+            )
+            suggestions.success(
+                "Coach: Good blink rhythm. Keep it up!"
+            )
 
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        FRAME_WINDOW.image(frame_rgb, use_container_width=True)
-        
-        time.sleep(0.01)
+        return img
 
-    cap.release()
+
+# ================= MAIN APP =================
+if run_monitor:
+
+    webrtc_streamer(
+        key="visionmate",
+        video_processor_factory=VideoProcessor,
+        media_stream_constraints={"video": True, "audio": False},
+    )
+
 else:
     status_placeholder.info("Monitoring Paused. Enable via Sidebar.")
