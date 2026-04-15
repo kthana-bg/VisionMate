@@ -10,35 +10,18 @@ import time
 # MUST BE FIRST: Page configuration
 st.set_page_config(
     page_title="VisionMate",
+    page_icon="👁️",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
 # CRITICAL: Initialize session state BEFORE any other Streamlit code
 def init_session_state():
-    """Initialize all session state variables"""
-    if "detector" not in st.session_state:
-        try:
-            st.session_state.detector = EyeStrainDetector()
-            print("Detector initialized successfully")  # Debug
-        except Exception as e:
-            st.error(f"Failed to initialize detector: {e}")
-            st.session_state.detector = None
-    
     if "ear_history" not in st.session_state:
         st.session_state.ear_history = [0.25] * 40
-    if "total_blinks" not in st.session_state:
-        st.session_state.total_blinks = 0
     if "run_monitor" not in st.session_state:
         st.session_state.run_monitor = True
-    if "shared_blink_count" not in st.session_state:
-        st.session_state.shared_blink_count = 0
-    if "shared_ear" not in st.session_state:
-        st.session_state.shared_ear = 0.25
-    if "shared_status" not in st.session_state:
-        st.session_state.shared_status = "Initializing..."
 
-# Initialize immediately
 init_session_state()
 
 # Custom CSS
@@ -68,6 +51,7 @@ st.markdown("""
         text-shadow: 0 0 10px rgba(187, 134, 252, 0.5);
         text-align: center;
     }
+    .stAlert { border-radius: 12px !important; }
     footer {visibility: hidden;}
     </style>
 """, unsafe_allow_html=True)
@@ -86,9 +70,6 @@ with st.sidebar:
                          value=0.20, step=0.01)
     
     if st.button("Reset Session Stats", use_container_width=True):
-        if st.session_state.detector:
-            st.session_state.detector.reset_blink_count()
-        st.session_state.shared_blink_count = 0
         st.session_state.ear_history = [0.25] * 40
         st.rerun()
     
@@ -104,106 +85,73 @@ st.markdown("<p style='text-align: center; color: #B0B0B0;'>AI Eye-Strain Monito
 
 col1, col2 = st.columns([1.8, 1])
 
-# Thread-safe shared state using Streamlit's session state
-class StreamlitSharedState:
-    """Uses Streamlit's session state for cross-thread communication"""
-    
-    @staticmethod
-    def update(blink_count, ear, status):
-        st.session_state.shared_blink_count = blink_count
-        st.session_state.shared_ear = ear
-        st.session_state.shared_status = status
-        
-    @staticmethod
-    def get():
-        return (
-            st.session_state.get('shared_blink_count', 0),
-            st.session_state.get('shared_ear', 0.25),
-            st.session_state.get('shared_status', "Initializing...")
-        )
-
-# Video Processor - FIXED: Creates its own detector instance
+# Video Processor - Creates its own detector instance (thread-safe)
 class VideoProcessor(VideoTransformerBase):
     def __init__(self):
-        # CRITICAL FIX: Create new detector instance instead of using session state
-        # WebRTC runs in a separate thread where session_state may not be available
-        try:
-            self.detector = EyeStrainDetector()
-            print("VideoProcessor: Detector created successfully")
-        except Exception as e:
-            print(f"VideoProcessor: Failed to create detector: {e}")
-            self.detector = None
-            
+        # Create new detector instance for this thread
+        self.detector = EyeStrainDetector()
         self.threshold = 0.20
-        self.frame_count = 0
-        self.last_update = time.time()
         self.blink_count = 0
+        self.current_ear = 0.25
+        self.status = "Initializing..."
+        self.last_update = time.time()
         
     def transform(self, frame):
-        # Safety check
-        if self.detector is None:
+        try:
             img = frame.to_ndarray(format="bgr24")
-            cv2.putText(img, "ERROR: Detector not loaded", (50, 100), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+            img = cv2.flip(img, 1)  # Mirror
+            h, w, _ = img.shape
+            
+            # Process at lower resolution for performance
+            small_img = cv2.resize(img, (320, 240))
+            
+            # Detect
+            ear, landmarks, _ = self.detector.process_frame(small_img)
+            
+            # Update blink detection
+            if ear > 0:
+                current_blinks, _ = self.detector.update_blink_state(ear, self.threshold)
+                self.blink_count = current_blinks
+                self.current_ear = ear
+                
+                # Determine status
+                if ear < self.threshold:
+                    color = (255, 50, 50)  # Red
+                    status = "HIGH STRAIN"
+                else:
+                    color = (50, 255, 150)  # Green
+                    status = "OPTIMAL"
+            else:
+                color = (128, 128, 128)
+                status = "NO FACE"
+                self.current_ear = 0
+            
+            self.status = status
+            
+            # Draw UI on original frame
+            cv2.rectangle(img, (0, 0), (w-1, h-1), color, 4)
+            
+            # Info panel
+            overlay = img.copy()
+            cv2.rectangle(overlay, (10, 10), (400, 140), (0, 0, 0), -1)
+            cv2.addWeighted(overlay, 0.6, img, 0.4, 0, img)
+            
+            # Text
+            cv2.putText(img, f"EAR: {self.current_ear:.3f}", (20, 50), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.9, color, 2)
+            cv2.putText(img, f"Blinks: {self.blink_count}", (20, 90), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
+            cv2.putText(img, status, (20, h - 20), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+            
             return img
-        
-        # Process frame
-        img = frame.to_ndarray(format="bgr24")
-        img = cv2.flip(img, 1)  # Mirror
-        h, w, _ = img.shape
-        
-        # Resize for performance (optional - remove if quality is priority)
-        process_frame = cv2.resize(img, (320, 240))
-        
-        # Detect
-        ear, landmarks, _ = self.detector.process_frame(process_frame)
-        
-        # Scale EAR coordinates back if needed (for visualization)
-        # For now, we process on small frame but display on original
-        
-        # Update blink detection
-        if ear > 0:  # Valid detection
-            current_blinks, _ = self.detector.update_blink_state(ear, self.threshold)
-            self.blink_count = current_blinks
-        
-        # Determine status and color
-        if ear == 0:
-            color = (128, 128, 128)
-            status = "NO FACE"
-        elif ear < self.threshold:
-            color = (255, 50, 50)  # Red
-            status = "HIGH STRAIN"
-        else:
-            color = (50, 255, 150)  # Green
-            status = "OPTIMAL"
-        
-        # Draw UI on original frame
-        # Border
-        cv2.rectangle(img, (0, 0), (w-1, h-1), color, 4)
-        
-        # Info panel
-        overlay = img.copy()
-        cv2.rectangle(overlay, (10, 10), (400, 140), (0, 0, 0), -1)
-        cv2.addWeighted(overlay, 0.6, img, 0.4, 0, img)
-        
-        # Text
-        cv2.putText(img, f"EAR: {ear:.3f}", (20, 50), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.9, color, 2)
-        cv2.putText(img, f"Blinks: {self.blink_count}", (20, 90), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
-        cv2.putText(img, status, (20, h - 20), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
-        
-        # Update shared state (throttled)
-        current_time = time.time()
-        if current_time - self.last_update > 0.3:  # Update every 300ms
-            try:
-                StreamlitSharedState.update(self.blink_count, ear, status)
-            except Exception as e:
-                pass  # Ignore update errors
-            self.last_update = current_time
-        
-        return img
+            
+        except Exception as e:
+            # Return error frame
+            img = frame.to_ndarray(format="bgr24")
+            cv2.putText(img, f"Error: {str(e)[:50]}", (50, 100), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+            return img
 
 # Analytics Column
 with col2:
@@ -235,36 +183,68 @@ with col1:
     st.subheader("Live AI Vision Feed")
     
     if st.session_state.run_monitor:
-        # Check detector is ready
-        if st.session_state.detector is None:
-            st.error("⚠️ EyeStrainDetector failed to initialize. Check logs.")
-        else:
-            # WebRTC with robust configuration
-            try:
-                ctx = webrtc_streamer(
-                    key="visionmate-stable-v3",
-                    mode=WebRtcMode.SENDRECV,
-                    video_processor_factory=VideoProcessor,
-                    rtc_configuration={
-                        "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
-                    },
-                    media_stream_constraints={
-                        "video": {
-                            "width": {"ideal": 640},
-                            "height": {"ideal": 480},
-                            "frameRate": {"ideal": 15}
-                        },
-                        "audio": False
-                    },
-                    async_processing=True,
-                )
-                
-                # Get values from shared state
-                blink_count, current_ear, status = StreamlitSharedState.get()
+        # CRITICAL FIX: Use TURN server for Streamlit Cloud
+        # Open Relay provides free TURN servers
+        rtc_configuration = {
+            "iceServers": [
+                # Multiple STUN servers for redundancy
+                {"urls": ["stun:stun.l.google.com:19302"]},
+                {"urls": ["stun:stun1.l.google.com:19302"]},
+                {"urls": ["stun:stun2.l.google.com:19302"]},
+                # FREE TURN server from Open Relay (required for Streamlit Cloud)
+                {
+                    "urls": ["turn:openrelay.metered.ca:80"],
+                    "username": "openrelayproject",
+                    "credential": "openrelayproject"
+                },
+                {
+                    "urls": ["turn:openrelay.metered.ca:443"],
+                    "username": "openrelayproject",
+                    "credential": "openrelayproject"
+                },
+                {
+                    "urls": ["turn:openrelay.metered.ca:443?transport=tcp"],
+                    "username": "openrelayproject",
+                    "credential": "openrelayproject"
+                }
+            ],
+            "iceTransportPolicy": "all"  # Allow both STUN and TURN
+        }
+        
+        media_constraints = {
+            "video": {
+                "width": {"ideal": 640, "max": 1280},
+                "height": {"ideal": 480, "max": 720},
+                "frameRate": {"ideal": 15, "max": 30}
+            },
+            "audio": False
+        }
+        
+        try:
+            # Use unique key to avoid conflicts
+            ctx = webrtc_streamer(
+                key="visionmate-turn-v1",
+                mode=WebRtcMode.SENDRECV,
+                video_processor_factory=VideoProcessor,
+                rtc_configuration=rtc_configuration,
+                media_stream_constraints=media_constraints,
+                async_processing=True,
+                video_html_attrs={
+                    "style": {"width": "100%", "height": "auto", "max-height": "480px"},
+                    "controls": False,
+                    "autoPlay": True
+                }
+            )
+            
+            # Get processor instance to read values
+            if ctx and ctx.video_processor:
+                processor = ctx.video_processor
+                ear_value = processor.current_ear if processor.current_ear > 0 else 0.25
+                blink_count = processor.blink_count
+                status = processor.status
                 
                 # Update UI
                 ear_color = "#BB86FC" if status == "OPTIMAL" else "#FF1744" if status == "HIGH STRAIN" else "#FFD600"
-                ear_value = current_ear if current_ear > 0 else 0.25
                 
                 ear_placeholder.markdown(
                     f"<div class='metric-value' style='color: {ear_color};'>{ear_value:.3f}</div>", 
@@ -286,16 +266,26 @@ with col1:
                 
                 # Coach message
                 if status == "NO FACE":
-                    coach_placeholder.warning("Please position your face in front of the camera")
+                    coach_placeholder.warning("👤 Please position your face in front of the camera")
                 elif status == "HIGH STRAIN":
-                    coach_placeholder.error("Eye strain detected! Take a break.")
+                    coach_placeholder.error("⚠️ Eye strain detected! Take a break.")
                 elif blink_count < 5:
-                    coach_placeholder.success("System Active: Monitoring...")
+                    coach_placeholder.success("✅ System Active: Monitoring...")
                 else:
-                    coach_placeholder.info("Remember the 20-20-20 rule!")
-                    
-            except Exception as e:
-                st.error(f"WebRTC Error: {str(e)}")
-                st.info("Try refreshing the page or check browser camera permissions.")
+                    coach_placeholder.info("💡 Remember the 20-20-20 rule!")
+            else:
+                # Waiting for connection
+                ear_placeholder.markdown("<div class='metric-value'>--.---</div>", unsafe_allow_html=True)
+                blink_placeholder.markdown("<div class='metric-value'>0</div>", unsafe_allow_html=True)
+                coach_placeholder.info("⏳ Waiting for camera connection...")
+                
+        except Exception as e:
+            st.error(f"WebRTC Error: {str(e)}")
+            st.info("Try refreshing the page or check browser camera permissions.")
+            
     else:
         st.info("📹 System standby. Enable the monitor in the sidebar to begin.")
+
+st.divider()
+st.markdown("<p style='text-align: center; color: #666; font-size: 12px;'>VisionMate FYP | BAXU 3973 | UTeM</p>", 
+           unsafe_allow_html=True)
