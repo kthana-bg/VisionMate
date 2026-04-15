@@ -9,29 +9,20 @@ import time
 import os
 from collections import deque
 
-try:
-    from twilio.rest import Client
-    TWILIO_AVAILABLE = True
-except ImportError:
-    TWILIO_AVAILABLE = False
-
 st.set_page_config(page_title="VisionMate", layout="wide", initial_sidebar_state="expanded")
 
-if "shared" not in st.session_state:
-    st.session_state.shared = {
-        "ear": 0.0,
-        "blinks": 0,
-        "status": "Initializing",
-        "lock": threading.Lock()
-    }
+if "metrics" not in st.session_state:
+    st.session_state.metrics = {"ear": 0.0, "blinks": 0, "status": "Initializing"}
 if "history" not in st.session_state:
     st.session_state.history = deque([0.25] * 40, maxlen=40)
 if "threshold" not in st.session_state:
     st.session_state.threshold = 0.20
 
+metrics_lock = threading.Lock()
+
 st.markdown("""
 <style>
-html, body, [data-testid="stAppViewContainer"] { height: 100vh; overflow: hidden; }
+html, body, [data-testid="stAppViewContainer"] { height: 100vh; overflow: hidden; margin: 0; padding: 0; }
 .stApp {
     background: linear-gradient(rgba(26, 26, 46, 0.9), rgba(26, 26, 46, 0.9)), 
                 url("https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=1920&q=80");
@@ -79,9 +70,7 @@ with st.sidebar:
         st.session_state.threshold = new_threshold
     if st.button("Reset Stats", width="stretch"):
         st.session_state.history = deque([0.25] * 40, maxlen=40)
-        with st.session_state.shared["lock"]:
-            st.session_state.shared["ear"] = 0.0
-            st.session_state.shared["blinks"] = 0
+        st.session_state.metrics = {"ear": 0.0, "blinks": 0, "status": "Initializing"}
         st.rerun()
     st.info("VisionMate monitors eye strain using AI.")
 
@@ -121,10 +110,10 @@ class VideoProcessor(VideoProcessorBase):
             
             current_time = time.time()
             if current_time - self.last_update > 0.3:
-                with st.session_state.shared["lock"]:
-                    st.session_state.shared["ear"] = self.last_ear
-                    st.session_state.shared["blinks"] = self.blink_count
-                    st.session_state.shared["status"] = self.last_status
+                with metrics_lock:
+                    st.session_state.metrics["ear"] = self.last_ear
+                    st.session_state.metrics["blinks"] = self.blink_count
+                    st.session_state.metrics["status"] = self.last_status
                 if self.last_ear > 0:
                     st.session_state.history.append(self.last_ear)
                 self.last_update = current_time
@@ -153,7 +142,7 @@ with col1:
     st.subheader("Live Feed")
     if run_monitor:
         ctx = webrtc_streamer(
-            key="visionmate-v3",
+            key="visionmate-v4",
             mode=WebRtcMode.SENDRECV,
             video_processor_factory=VideoProcessor,
             rtc_configuration={"iceServers": get_ice_servers()},
@@ -163,10 +152,10 @@ with col1:
             video_html_attrs={"style": {"width": "100%", "height": "auto"}, "controls": False, "autoPlay": True, "playsInline": True, "muted": True}
         )
         
-        with st.session_state.shared["lock"]:
-            ear = st.session_state.shared["ear"]
-            blinks = st.session_state.shared["blinks"]
-            status = st.session_state.shared["status"]
+        with metrics_lock:
+            ear = st.session_state.metrics["ear"]
+            blinks = st.session_state.metrics["blinks"]
+            status = st.session_state.metrics["status"]
         
         status_class = "status-optimal" if status == "OPTIMAL" else "status-danger" if status == "HIGH STRAIN" else "status-warning"
         
