@@ -11,7 +11,6 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-
 st.markdown("""
     <style>
     .stApp {
@@ -52,6 +51,13 @@ st.markdown("""
     footer {visibility: hidden;}
     </style>
 """, unsafe_allow_html=True)
+
+
+# ================= SIDEBAR =================
+with st.sidebar:
+    st.markdown("## VisionMate Control")
+    run_monitor = st.checkbox("Enable Live AI Monitor", value=True)
+    st.divider()
 
 
 # ================= TITLE =================
