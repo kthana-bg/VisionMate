@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
 import mediapipe as mp
-# Force explicit import for cloud stability
+
 import mediapipe.python.solutions.face_mesh as mp_face_mesh 
 
 class EyeStrainDetector:
