@@ -118,29 +118,30 @@ class VideoProcessor(VideoTransformerBase):
 # Main App Execution
 if run_monitor:
     with col1:
+        # We use a simpler setup to avoid network "handshake" timeouts
         ctx = webrtc_streamer(
-            key="visionmate-stream",
-            mode=WebRtcMode.SENDRECV, # Fixed: removed the 'st.' prefix
+            key="visionmate-stable",
             video_processor_factory=VideoProcessor,
             rtc_configuration={
-                "iceServers": [
-                    {"urls": ["stun:stun.l.google.com:19302"]},
-                    {"urls": ["stun:stun1.l.google.com:19302"]},
-                    {"urls": ["stun:stun2.l.google.com:19302"]},
-                    {"urls": ["stun:stun.services.mozilla.com"]}
-                ]
+                "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
             },
-            media_stream_constraints={"video": True, "audio": False},
-            async_processing=True, 
+            media_stream_constraints={
+                "video": {
+                    "width": {"ideal": 640},
+                    "height": {"ideal": 480},
+                    "frameRate": {"ideal": 20}
+                },
+                "audio": False
+            },
         )
     
-    # Analytics Update
+    # Update Dashboard
     blink_text.markdown(f"<div class='metric-value'>{st.session_state.blink_total}</div>", unsafe_allow_html=True)
     
     if st.session_state.blink_total < 5:
-        coach_msg.success("You are maintaining great focus!")
+        coach_msg.success("System Active: Monitoring focus...")
     else:
-        coach_msg.warning("Consider taking a short break soon.")
+        coach_msg.warning("Session Alert: Remember the 20-20-20 rule!")
 
 else:
     st.info("System standby. Enable the monitor in the sidebar to begin.")
