@@ -106,47 +106,56 @@ def load_detector():
 
 detector = load_detector()
 threshold = 0.20
-if 'ear_history' not in st.session_stat9e:
+if 'ear_history' not in st.session_state:
     st.session_state.ear_history = [0.25] * 40
 if 'blink_total' not in st.session_state:
     st.session_state.blink_total = 0
 
 if run_monitor:
     cap = cv2.VideoCapture(0)
+    # Check if camera opened successfully
+    if not cap.isOpened():
+        st.error("Cannot access webcam. If you are on Streamlit Cloud, please run this locally.")
+        run_monitor = False
+    
     blink_active = False 
 
     while run_monitor:
         ret, frame = cap.read()
-        if not ret: break
+        if not ret: 
+            st.warning("Camera feed interrupted.")
+            break
         
         frame = cv2.flip(frame, 1) 
         ear, landmarks = detector.process_frame(frame)
         
-        #data processing
         if ear > 0:
             st.session_state.ear_history.append(ear)
             st.session_state.ear_history = st.session_state.ear_history[-40:]
             
-            #blink logic 
+            # Blink logic 
             if ear < threshold:
-                blink_active = True #eye is currently closed
+                blink_active = True 
             else:
                 if blink_active:
-                    st.session_state.blink_total += 1 #count 1 full blink
-                    blink_active = False #reset the state
+                    st.session_state.blink_total += 1 
+                    blink_active = False 
 
-        ear_placeholder.markdown(f"<div class='metric-value'>{ear:.3f}</div>", unsafe_allow_html=True)
-        blink_placeholder.markdown(f"<div class='metric-value'>{st.session_state.blink_total}</div>", unsafe_allow_html=True)
-        
-        # coach logic
-        if ear > 0 and ear < threshold:
-            status_placeholder.markdown("<span style='color: #ff4b4b; font-weight: bold;'>STATE: HIGH STRAIN / EYE CLOSED</span>", unsafe_allow_html=True)
-            suggestions.warning("Coach: High eye strain detected. Please focus on an object 20 feet away for 20 seconds.")
-        elif ear == 0:
-            status_placeholder.markdown("<span style='color: #ffd166;'>STATE: SEARCHING FOR USER...</span>", unsafe_allow_html=True)
+            # UI Updates
+            ear_placeholder.markdown(f"<div class='metric-value'>{ear:.3f}</div>", unsafe_allow_html=True)
+            blink_placeholder.markdown(f"<div class='metric-value'>{st.session_state.blink_total}</div>", unsafe_allow_html=True)
+            
+            # Status Logic
+            if ear < threshold:
+                status_placeholder.markdown("<span style='color: #ff4b4b; font-weight: bold;'>STATE: HIGH STRAIN / EYE CLOSED</span>", unsafe_allow_html=True)
+                suggestions.warning("Coach: High eye strain detected. Please focus on an object 20 feet away for 20 seconds.")
+            else:
+                status_placeholder.markdown("<span style='color: #06d6a0; font-weight: bold;'>STATE: OPTIMAL FLOW</span>", unsafe_allow_html=True)
+                suggestions.success("Coach: You are doing great! Maintain this blink frequency to avoid CVS.")
         else:
-            status_placeholder.markdown("<span style='color: #06d6a0; font-weight: bold;'>STATE: OPTIMAL FLOW</span>", unsafe_allow_html=True)
-            suggestions.success("Coach: You are doing great! Maintain this blink frequency to avoid CVS.")
+            # When no face is detected
+            ear_placeholder.markdown("<div class='metric-value'>0.000</div>", unsafe_allow_html=True)
+            status_placeholder.markdown("<span style='color: #ffd166;'>STATE: SEARCHING FOR USER...</span>", unsafe_allow_html=True)
 
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         FRAME_WINDOW.image(frame_rgb, use_container_width=True)
