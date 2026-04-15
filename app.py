@@ -8,14 +8,12 @@ import threading
 import time
 import os
 
-# Try to import Twilio, fallback if not available
 try:
     from twilio.rest import Client
     TWILIO_AVAILABLE = True
 except ImportError:
     TWILIO_AVAILABLE = False
 
-# MUST BE FIRST: Page configuration
 st.set_page_config(
     page_title="VisionMate",
     page_icon="",
@@ -23,7 +21,6 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Initialize session state with shared values for cross-thread communication
 def init_session_state():
     if "ear_history" not in st.session_state:
         st.session_state.ear_history = [0.25] * 40
@@ -104,7 +101,7 @@ def get_ice_servers():
         }
     ]
 
-# Sidebar - No icons
+# Sidebar
 with st.sidebar:
     st.markdown("## VisionMate Control")
     
@@ -127,7 +124,7 @@ with st.sidebar:
     st.markdown("### About")
     st.info("VisionMate monitors your eye strain using AI-powered eye tracking.")
 
-# Main Layout - No icons in title
+# Main Layout
 st.markdown("<h1 style='text-align: center;'>VISIONMATE</h1>", 
             unsafe_allow_html=True)
 st.markdown("<p style='text-align: center; color: #B0B0B0;'>AI Eye-Strain Monitor and Ergonomic Coach</p>", 
@@ -153,10 +150,9 @@ class SharedMetrics:
         with self.lock:
             return self.ear, self.blinks, self.status
 
-# Global shared metrics instance
 shared_metrics = SharedMetrics()
 
-# Video Processor - Clean video, updates shared metrics
+# Video Processor
 class VideoProcessor(VideoTransformerBase):
     def __init__(self):
         self.detector = EyeStrainDetector()
@@ -173,7 +169,7 @@ class VideoProcessor(VideoTransformerBase):
             img = cv2.flip(img, 1)
             h, w, _ = img.shape
             
-            # Process every 3rd frame to reduce load (optional)
+            # Process every 3rd frame to reduce load
             self.frame_counter += 1
             process_this_frame = (self.frame_counter % 2 == 0)
             
@@ -197,8 +193,7 @@ class VideoProcessor(VideoTransformerBase):
                 
                 # Update shared metrics for dashboard
                 shared_metrics.update(self.current_ear, self.blink_count, self.status)
-            
-            # Draw thin border based on status
+
             if self.status == "HIGH STRAIN":
                 color = (255, 50, 50)
             elif self.status == "OPTIMAL":
@@ -219,39 +214,31 @@ class VideoProcessor(VideoTransformerBase):
 # Analytics Column
 with col2:
     st.subheader("Session Analytics")
-    
-    # EAR Metric
+
     st.markdown('<p class="metric-label">Current EAR</p>', unsafe_allow_html=True)
     ear_placeholder = st.empty()
-    
-    # Blink Count Metric
+
     st.markdown('<p class="metric-label">Total Blinks</p>', unsafe_allow_html=True)
     blink_placeholder = st.empty()
-    
-    # Status Indicator
+
     st.markdown('<p class="metric-label">System Status</p>', unsafe_allow_html=True)
     status_placeholder = st.empty()
-    
     st.divider()
-    
-    # EAR History Chart
+
     st.markdown('<p class="metric-label">EAR History</p>', unsafe_allow_html=True)
     chart_placeholder = st.empty()
-    
     st.divider()
-    
-    # Real-time Coach
+
     st.subheader("Real-time Coach")
     coach_placeholder = st.empty()
 
-# Video Feed Column - Auto starts, no buttons
+# Video Feed Column
 with col1:
     st.subheader("Live AI Vision Feed")
     
     st.markdown('<div class="video-container">', unsafe_allow_html=True)
     
     if st.session_state.run_monitor:
-        # Get ICE servers
         ice_servers = get_ice_servers()
         
         rtc_configuration = {
@@ -269,7 +256,6 @@ with col1:
         }
         
         try:
-            # Auto-start video with desired_playing_state=True
             ctx = webrtc_streamer(
                 key="visionmate-auto-v1",
                 mode=WebRtcMode.SENDRECV,
@@ -277,7 +263,7 @@ with col1:
                 rtc_configuration=rtc_configuration,
                 media_stream_constraints=media_constraints,
                 async_processing=True,
-                desired_playing_state=True,  # CRITICAL: Auto-start
+                desired_playing_state=True,
                 video_html_attrs={
                     "style": {
                         "width": "100%",
@@ -291,7 +277,6 @@ with col1:
                 }
             )
             
-            # Read from shared metrics (works across threads)
             current_ear, blink_count, status = shared_metrics.get()
             
             # Update session state for chart history
@@ -325,7 +310,7 @@ with col1:
                 unsafe_allow_html=True
             )
             
-            # Update Status - No icons, just text
+            # Update Status
             status_placeholder.markdown(
                 f'<div class="metric-value {status_class}" style="font-size: 20px;">{status}</div>', 
                 unsafe_allow_html=True
@@ -338,7 +323,7 @@ with col1:
                 use_container_width=True
             )
             
-            # Coach message - No icons
+            # Coach message
             if status == "NO FACE":
                 coach_placeholder.warning("Please position your face in front of the camera")
             elif status == "HIGH STRAIN":
@@ -355,7 +340,3 @@ with col1:
         st.info("System standby. Enable the monitor in the sidebar to begin.")
     
     st.markdown('</div>', unsafe_allow_html=True)
-
-st.divider()
-st.markdown("<p style='text-align: center; color: #666; font-size: 12px;'>VisionMate FYP | BAXU 3973 | UTeM</p>", 
-           unsafe_allow_html=True)
