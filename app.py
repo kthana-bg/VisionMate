@@ -7,6 +7,7 @@ import av
 import threading
 import time
 import os
+from queue import Queue
 
 try:
     from twilio.rest import Client
@@ -27,8 +28,6 @@ def init_session_state():
         st.session_state.status = "Initializing"
     if "run_monitor" not in st.session_state:
         st.session_state.run_monitor = True
-    if "frame_count" not in st.session_state:
-        st.session_state.frame_count = 0
 
 init_session_state()
 
@@ -68,6 +67,8 @@ st.markdown("""
     button[kind="secondary"], footer, [data-testid="stSidebar"] { display: none !important; }
     </style>
 """, unsafe_allow_html=True)
+
+metrics_queue = Queue()
 
 def get_ice_servers():
     account_sid = os.environ.get('TWILIO_ACCOUNT_SID')
@@ -113,7 +114,7 @@ class VideoProcessor(VideoProcessorBase):
         self.current_ear = 0.0
         self.status = "Initializing"
         self.frame_counter = 0
-        self.lock = threading.Lock()
+        self.last_metrics_update = time.time()
         
     def recv(self, frame):
         img = frame.to_ndarray(format="bgr24")
@@ -123,37 +124,36 @@ class VideoProcessor(VideoProcessorBase):
         
         if self.frame_counter % 2 == 0:
             ear, landmarks, _ = self.detector.process_frame(img)
-            with self.lock:
-                if ear > 0:
-                    current_blinks, _ = self.detector.update_blink_state(ear, self.threshold)
-                    self.blink_count = current_blinks
-                    self.current_ear = ear
-                    if ear < self.threshold:
-                        self.status = "HIGH STRAIN"
-                    else:
-                        self.status = "OPTIMAL"
+            if ear > 0:
+                current_blinks, _ = self.detector.update_blink_state(ear, self.threshold)
+                self.blink_count = current_blinks
+                self.current_ear = ear
+                if ear < self.threshold:
+                    self.status = "HIGH STRAIN"
                 else:
-                    self.status = "NO FACE"
-                    self.current_ear = 0.0
+                    self.status = "OPTIMAL"
+            else:
+                self.status = "NO FACE"
+                self.current_ear = 0.0
+            
+            if time.time() - self.last_metrics_update > 0.5:
+                try:
+                    metrics_queue.put_nowait({
+                        "ear": self.current_ear,
+                        "blinks": self.blink_count,
+                        "status": self.status
+                    })
+                except:
+                    pass
+                self.last_metrics_update = time.time()
         
-        with self.lock:
-            status = self.status
-            current_ear = self.current_ear
-            blink_count = self.blink_count
-        
-        if status == "HIGH STRAIN":
+        if self.status == "HIGH STRAIN":
             color = (255, 50, 50)
-        elif status == "OPTIMAL":
+        elif self.status == "OPTIMAL":
             color = (50, 255, 150)
         else:
             color = (128, 128, 128)
         cv2.rectangle(img, (0, 0), (w-1, h-1), color, 3)
-        
-        st.session_state.current_ear = current_ear
-        st.session_state.blink_count = blink_count
-        st.session_state.status = status
-        if current_ear > 0 and self.frame_counter % 5 == 0:
-            st.session_state.ear_history = st.session_state.ear_history[1:] + [current_ear]
         
         return av.VideoFrame.from_ndarray(img, format="bgr24")
 
@@ -183,7 +183,7 @@ with col1:
         
         try:
             ctx = webrtc_streamer(
-                key="visionmate-recv-v1",
+                key="visionmate-queue-v1",
                 mode=WebRtcMode.SENDRECV,
                 video_processor_factory=VideoProcessor,
                 rtc_configuration=rtc_configuration,
@@ -192,6 +192,17 @@ with col1:
                 desired_playing_state=True,
                 video_html_attrs={"style": {"width": "100%", "height": "auto", "max-height": "480px"}, "controls": False, "autoPlay": True, "playsInline": True, "muted": True}
             )
+            
+            while not metrics_queue.empty():
+                try:
+                    data = metrics_queue.get_nowait()
+                    st.session_state.current_ear = data["ear"]
+                    st.session_state.blink_count = data["blinks"]
+                    st.session_state.status = data["status"]
+                    if data["ear"] > 0:
+                        st.session_state.ear_history = st.session_state.ear_history[1:] + [data["ear"]]
+                except:
+                    break
             
             current_ear = st.session_state.current_ear
             blink_count = st.session_state.blink_count
@@ -219,7 +230,7 @@ with col1:
             else:
                 coach_placeholder.info("Remember the 20-20-20 rule")
             
-            time.sleep(0.5)
+            time.sleep(0.3)
             st.rerun()
             
         except Exception as e:
