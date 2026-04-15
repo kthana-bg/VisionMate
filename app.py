@@ -148,7 +148,7 @@ with st.sidebar:
                          min_value=0.15, max_value=0.30, 
                          value=0.20, step=0.01)
     
-    if st.button("Reset Session Stats", use_container_width=True):
+     if st.button("Reset Session Stats", width="stretch"): 
         st.session_state.ear_history = [0.25] * 40
         st.session_state.current_ear = 0.0
         st.session_state.blink_count = 0
@@ -188,7 +188,7 @@ class SharedMetrics:
 shared_metrics = SharedMetrics()
 
 # Video Processor - Clean video, updates shared metrics
-class VideoProcessor(VideoTransformerBase):
+class VideoProcessor: # No longer needs to inherit from VideoTransformerBase
     def __init__(self):
         self.detector = EyeStrainDetector()
         self.threshold = 0.20
@@ -197,55 +197,37 @@ class VideoProcessor(VideoTransformerBase):
         self.status = "Initializing"
         self.frame_counter = 0
         
-    def transform(self, frame):
+    def recv(self, frame): # Changed from transform to recv
         try:
-            # Get original frame
+            # Get image from the frame
             img = frame.to_ndarray(format="bgr24")
             img = cv2.flip(img, 1)
             h, w, _ = img.shape
             
-            # Process every 3rd frame to reduce load (optional)
             self.frame_counter += 1
-            process_this_frame = (self.frame_counter % 2 == 0)
-            
-            if process_this_frame:
-                # Detect eyes
+            if self.frame_counter % 2 == 0:
                 ear, landmarks, _ = self.detector.process_frame(img)
                 
-                # Update metrics
                 if ear > 0:
                     current_blinks, _ = self.detector.update_blink_state(ear, self.threshold)
                     self.blink_count = current_blinks
                     self.current_ear = ear
-                    
-                    if ear < self.threshold:
-                        self.status = "HIGH STRAIN"
-                    else:
-                        self.status = "OPTIMAL"
+                    self.status = "HIGH STRAIN" if ear < self.threshold else "OPTIMAL"
                 else:
                     self.status = "NO FACE"
                     self.current_ear = 0.0
                 
-                # Update shared metrics for dashboard
                 shared_metrics.update(self.current_ear, self.blink_count, self.status)
             
-            # Draw thin border based on status
-            if self.status == "HIGH STRAIN":
-                color = (255, 50, 50)
-            elif self.status == "OPTIMAL":
-                color = (50, 255, 150)
-            else:
-                color = (128, 128, 128)
-            
+            # Draw border
+            color = (255, 50, 50) if self.status == "HIGH STRAIN" else (50, 255, 150)
             cv2.rectangle(img, (0, 0), (w-1, h-1), color, 3)
             
-            return img
+            # RETURN must be an av.VideoFrame
+            return av.VideoFrame.from_ndarray(img, format="bgr24")
             
         except Exception as e:
-            img = frame.to_ndarray(format="bgr24")
-            cv2.putText(img, "Error", (50, 100), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-            return img
+            return frame
 
 # Analytics Column
 with col2:
@@ -300,28 +282,25 @@ with col1:
         }
         
         try:
-            # Auto-start video with desired_playing_state=True
             ctx = webrtc_streamer(
-                key="visionmate-auto-v1",
+                key="visionmate-v2",
                 mode=WebRtcMode.SENDRECV,
+                video_frame_callback=None, # If using processor_factory
                 video_processor_factory=VideoProcessor,
-                rtc_configuration=rtc_configuration,
-                media_stream_constraints=media_constraints,
+                rtc_configuration={
+                    "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}] # Simplified to avoid 403
+                },
+                media_stream_constraints={"video": True, "audio": False},
                 async_processing=True,
-                desired_playing_state=True,  # CRITICAL: Auto-start
-                video_html_attrs={
-                    "style": {
-                        "width": "100%",
-                        "height": "auto",
-                        "max-height": "480px"
-                    },
-                    "controls": False,
-                    "autoPlay": True,
-                    "playsInline": True,
-                    "muted": True
-                }
+                desired_playing_state=True,
             )
             
+            # ... update chart using new width param
+            chart_placeholder.line_chart(
+                {"EAR": st.session_state.ear_history}, 
+                height=120, 
+                width="stretch" # Changed from use_container_width
+            )
             # Read from shared metrics (works across threads)
             current_ear, blink_count, status = shared_metrics.get()
             
