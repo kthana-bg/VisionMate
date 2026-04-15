@@ -11,6 +11,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+
 st.markdown("""
     <style>
     .stApp {
@@ -19,46 +20,26 @@ st.markdown("""
         background-size: cover;
     }
 
-    /* Visibality of the sidebar */
     section[data-testid="stSidebar"] {
         background: rgba(40, 20, 80, 0.5) !important;
         backdrop-filter: blur(20px) !important;
         border-right: 1px solid rgba(255, 255, 255, 0.1);
-        z-index: 100;
     }
 
-    /* Sidebar text */
     section[data-testid="stSidebar"] .stText, section[data-testid="stSidebar"] label {
         color: #E0B0FF !important;
     }
 
-    /* Containers */
     [data-testid="column"] > div {
         background: rgba(255, 255, 255, 0.05) !important;
-        backdrop-filter: blur(25px) saturate(170%) !important;
-        -webkit-backdrop-filter: blur(25px) saturate(170%) !important;
+        backdrop-filter: blur(25px);
         border-radius: 24px !important;
         border: 1px solid rgba(255, 255, 255, 0.15) !important;
         padding: 30px !important;
-        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5) !important;
-        //margin-bottom: 1rem;
-    }
-
-    /* Toggle button of the sidebar */
-    header[data-testid="stHeader"] {
-        background: rgba(0,0,0,0) !important;
-        visibility: visible !important;
-    }
-    
-    button[kind="headerNoContext"] {
-        background-color: rgba(187, 134, 252, 0.2) !important;
-        border-radius: 50% !important;
-        color: white !important;
     }
 
     h1, h2, h3 {
         color: #E0B0FF !important;
-        font-family: 'Inter', sans-serif;
         font-weight: 300 !important;
     }
 
@@ -66,17 +47,11 @@ st.markdown("""
         font-size: 52px;
         font-weight: 200;
         color: #BB86FC;
-        text-shadow: 0 0 20px rgba(187, 134, 252, 0.6);
     }
 
     footer {visibility: hidden;}
     </style>
-    """, unsafe_allow_html=True)
-
-with st.sidebar:
-    st.markdown("## VisionMate Control")
-    run_monitor = st.checkbox("Enable Live AI Monitor", value=True)
-    st.divider()
+""", unsafe_allow_html=True)
 
 
 # ================= TITLE =================
