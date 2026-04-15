@@ -18,21 +18,27 @@ except ImportError:
 # MUST BE FIRST: Page configuration
 st.set_page_config(
     page_title="VisionMate",
-    page_icon="👁️",
+    page_icon="",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Initialize session state
+# Initialize session state with shared values for cross-thread communication
 def init_session_state():
     if "ear_history" not in st.session_state:
         st.session_state.ear_history = [0.25] * 40
+    if "current_ear" not in st.session_state:
+        st.session_state.current_ear = 0.0
+    if "blink_count" not in st.session_state:
+        st.session_state.blink_count = 0
+    if "status" not in st.session_state:
+        st.session_state.status = "Initializing"
     if "run_monitor" not in st.session_state:
         st.session_state.run_monitor = True
 
 init_session_state()
 
-# Custom CSS - Glassmorphism UI with video sizing
+# Custom CSS - Clean UI without icons, auto-start video
 st.markdown("""
     <style>
     .stApp {
@@ -72,7 +78,7 @@ st.markdown("""
     .status-warning { color: #FFD600 !important; }
     .status-danger { color: #FF1744 !important; }
     
-    /* Video container sizing - CRITICAL FIX */
+    /* Video container sizing */
     .video-container {
         width: 100% !important;
         max-width: 100% !important;
@@ -80,25 +86,27 @@ st.markdown("""
         border-radius: 16px !important;
         overflow: hidden !important;
     }
-    .video-container video {
-        width: 100% !important;
-        height: auto !important;
-        max-height: 480px !important;
-        object-fit: contain !important;
-        border-radius: 16px !important;
+    
+    /* CRITICAL: Hide the start/stop button */
+    button[kind="secondary"] {
+        display: none !important;
     }
     
-    /* Remove default streamlit iframe borders */
-    iframe {
-        border: none !important;
-        border-radius: 16px !important;
+    /* Hide all streamlit buttons in webrtc */
+    .stButton > button {
+        display: none !important;
+    }
+    
+    /* Alternative: hide specific webrtc controls */
+    .webrtc-container button {
+        display: none !important;
     }
     
     footer {visibility: hidden;}
     </style>
 """, unsafe_allow_html=True)
 
-# Function to get ICE servers (Twilio or fallback)
+# Function to get ICE servers
 def get_ice_servers():
     account_sid = os.environ.get('TWILIO_ACCOUNT_SID')
     auth_token = os.environ.get('TWILIO_AUTH_TOKEN')
@@ -109,12 +117,7 @@ def get_ice_servers():
             token = client.tokens.create()
             return token.ice_servers
         except Exception as e:
-            st.warning(f"⚠️ Twilio failed ({e}), using Open Relay fallback")
-    else:
-        if not TWILIO_AVAILABLE:
-            st.info("ℹ️ Twilio not installed, using Open Relay")
-        elif not account_sid:
-            st.info("ℹ️ Twilio credentials not set, using Open Relay")
+            pass
     
     # Fallback Open Relay servers
     return [
@@ -129,15 +132,10 @@ def get_ice_servers():
             "urls": ["turn:openrelay.metered.ca:443"],
             "username": "openrelayproject",
             "credential": "openrelayproject"
-        },
-        {
-            "urls": ["turn:openrelay.metered.ca:443?transport=tcp"],
-            "username": "openrelayproject",
-            "credential": "openrelayproject"
         }
     ]
 
-# Sidebar
+# Sidebar - No icons
 with st.sidebar:
     st.markdown("## VisionMate Control")
     
@@ -152,78 +150,104 @@ with st.sidebar:
     
     if st.button("Reset Session Stats", use_container_width=True):
         st.session_state.ear_history = [0.25] * 40
+        st.session_state.current_ear = 0.0
+        st.session_state.blink_count = 0
         st.rerun()
     
     st.divider()
     st.markdown("### About")
     st.info("VisionMate monitors your eye strain using AI-powered eye tracking.")
 
-# Main Layout
+# Main Layout - No icons in title
 st.markdown("<h1 style='text-align: center;'>VISIONMATE</h1>", 
             unsafe_allow_html=True)
-st.markdown("<p style='text-align: center; color: #B0B0B0;'>AI Eye-Strain Monitor & Ergonomic Coach</p>", 
+st.markdown("<p style='text-align: center; color: #B0B0B0;'>AI Eye-Strain Monitor and Ergonomic Coach</p>", 
             unsafe_allow_html=True)
 
 col1, col2 = st.columns([1.8, 1])
 
-# Video Processor - Clean video without overlays
+# Thread-safe value storage
+class SharedMetrics:
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.ear = 0.0
+        self.blinks = 0
+        self.status = "Initializing"
+    
+    def update(self, ear, blinks, status):
+        with self.lock:
+            self.ear = ear
+            self.blinks = blinks
+            self.status = status
+    
+    def get(self):
+        with self.lock:
+            return self.ear, self.blinks, self.status
+
+# Global shared metrics instance
+shared_metrics = SharedMetrics()
+
+# Video Processor - Clean video, updates shared metrics
 class VideoProcessor(VideoTransformerBase):
     def __init__(self):
         self.detector = EyeStrainDetector()
         self.threshold = 0.20
         self.blink_count = 0
-        self.current_ear = 0.25
-        self.status = "Initializing..."
+        self.current_ear = 0.0
+        self.status = "Initializing"
+        self.frame_counter = 0
         
     def transform(self, frame):
         try:
-            # Get original frame without resizing to avoid blur
+            # Get original frame
             img = frame.to_ndarray(format="bgr24")
-            img = cv2.flip(img, 1)  # Mirror for natural feel
+            img = cv2.flip(img, 1)
             h, w, _ = img.shape
             
-            # Process on original resolution to maintain quality
-            # Only scale down for MediaPipe if needed, then scale back
-            process_img = img.copy()
+            # Process every 3rd frame to reduce load (optional)
+            self.frame_counter += 1
+            process_this_frame = (self.frame_counter % 2 == 0)
             
-            # Detect eyes
-            ear, landmarks, _ = self.detector.process_frame(process_img)
-            
-            # Update metrics
-            if ear > 0:
-                current_blinks, _ = self.detector.update_blink_state(ear, self.threshold)
-                self.blink_count = current_blinks
-                self.current_ear = ear
+            if process_this_frame:
+                # Detect eyes
+                ear, landmarks, _ = self.detector.process_frame(img)
                 
-                if ear < self.threshold:
-                    self.status = "HIGH STRAIN"
+                # Update metrics
+                if ear > 0:
+                    current_blinks, _ = self.detector.update_blink_state(ear, self.threshold)
+                    self.blink_count = current_blinks
+                    self.current_ear = ear
+                    
+                    if ear < self.threshold:
+                        self.status = "HIGH STRAIN"
+                    else:
+                        self.status = "OPTIMAL"
                 else:
-                    self.status = "OPTIMAL"
-            else:
-                self.status = "NO FACE"
-                self.current_ear = 0
+                    self.status = "NO FACE"
+                    self.current_ear = 0.0
+                
+                # Update shared metrics for dashboard
+                shared_metrics.update(self.current_ear, self.blink_count, self.status)
             
-            # Return clean frame - NO TEXT OVERLAYS
-            # Only draw subtle border color based on status
+            # Draw thin border based on status
             if self.status == "HIGH STRAIN":
-                color = (255, 50, 50)  # Red
+                color = (255, 50, 50)
             elif self.status == "OPTIMAL":
-                color = (50, 255, 150)  # Green
+                color = (50, 255, 150)
             else:
-                color = (128, 128, 128)  # Gray
+                color = (128, 128, 128)
             
-            # Thin border only - no text, no overlays
             cv2.rectangle(img, (0, 0), (w-1, h-1), color, 3)
             
             return img
             
         except Exception as e:
             img = frame.to_ndarray(format="bgr24")
-            cv2.putText(img, f"Error: {str(e)[:50]}", (50, 100), 
+            cv2.putText(img, "Error", (50, 100), 
                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
             return img
 
-# Analytics Column - All metrics displayed here
+# Analytics Column
 with col2:
     st.subheader("Session Analytics")
     
@@ -251,11 +275,10 @@ with col2:
     st.subheader("Real-time Coach")
     coach_placeholder = st.empty()
 
-# Video Feed Column
+# Video Feed Column - Auto starts, no buttons
 with col1:
     st.subheader("Live AI Vision Feed")
     
-    # Video container with CSS class
     st.markdown('<div class="video-container">', unsafe_allow_html=True)
     
     if st.session_state.run_monitor:
@@ -267,118 +290,100 @@ with col1:
             "iceTransportPolicy": "all"
         }
         
-        # Video constraints - maintain aspect ratio
         media_constraints = {
             "video": {
-                "width": {"ideal": 640, "min": 320},
-                "height": {"ideal": 480, "min": 240},
-                "aspectRatio": {"ideal": 1.333},  # 4:3 aspect ratio
-                "frameRate": {"ideal": 30, "max": 30}
+                "width": {"ideal": 640},
+                "height": {"ideal": 480},
+                "frameRate": {"ideal": 30}
             },
             "audio": False
         }
         
         try:
+            # Auto-start video with desired_playing_state=True
             ctx = webrtc_streamer(
-                key="visionmate-clean-v1",
+                key="visionmate-auto-v1",
                 mode=WebRtcMode.SENDRECV,
                 video_processor_factory=VideoProcessor,
                 rtc_configuration=rtc_configuration,
                 media_stream_constraints=media_constraints,
                 async_processing=True,
-                # Video HTML attributes for proper sizing
+                desired_playing_state=True,  # CRITICAL: Auto-start
                 video_html_attrs={
                     "style": {
                         "width": "100%",
                         "height": "auto",
-                        "max-height": "480px",
-                        "border-radius": "16px"
+                        "max-height": "480px"
                     },
                     "controls": False,
                     "autoPlay": True,
-                    "playsInline": True
+                    "playsInline": True,
+                    "muted": True
                 }
             )
             
-            # Update dashboard metrics from processor
-            if ctx and ctx.video_processor:
-                processor = ctx.video_processor
-                ear_value = processor.current_ear if processor.current_ear > 0 else 0.0
-                blink_count = processor.blink_count
-                status = processor.status
-                
-                # Determine colors based on status
-                if status == "OPTIMAL":
-                    ear_color = "#00E676"  # Green
-                    status_color = "status-optimal"
-                    status_icon = "✅"
-                elif status == "HIGH STRAIN":
-                    ear_color = "#FF1744"  # Red
-                    status_color = "status-danger"
-                    status_icon = "⚠️"
-                else:
-                    ear_color = "#FFD600"  # Yellow
-                    status_color = "status-warning"
-                    status_icon = "👤"
-                
-                # Update EAR display
-                ear_display = f"{ear_value:.3f}" if ear_value > 0 else "--.---"
-                ear_placeholder.markdown(
-                    f'<div class="metric-value {status_color}">{ear_display}</div>', 
-                    unsafe_allow_html=True
-                )
-                
-                # Update Blink count
-                blink_placeholder.markdown(
-                    f'<div class="metric-value" style="color: #BB86FC;">{blink_count}</div>', 
-                    unsafe_allow_html=True
-                )
-                
-                # Update Status
-                status_placeholder.markdown(
-                    f'<div class="metric-value {status_color}" style="font-size: 24px;">{status_icon} {status}</div>', 
-                    unsafe_allow_html=True
-                )
-                
-                # Update Chart
-                if ear_value > 0:
-                    st.session_state.ear_history = st.session_state.ear_history[1:] + [ear_value]
-                chart_placeholder.line_chart(
-                    {"EAR": st.session_state.ear_history}, 
-                    height=120, 
-                    use_container_width=True
-                )
-                
-                # Coach message based on status
-                if status == "NO FACE":
-                    coach_placeholder.warning("👤 Please position your face in front of the camera")
-                elif status == "HIGH STRAIN":
-                    coach_placeholder.error("⚠️ Eye strain detected! Consider taking a 20-20-20 break.")
-                elif blink_count < 5:
-                    coach_placeholder.success("✅ System Active: Monitoring your eye health...")
-                else:
-                    coach_placeholder.info("💡 Tip: Every 20 mins, look 20 feet away for 20 seconds")
+            # Read from shared metrics (works across threads)
+            current_ear, blink_count, status = shared_metrics.get()
+            
+            # Update session state for chart history
+            if current_ear > 0:
+                st.session_state.current_ear = current_ear
+                st.session_state.blink_count = blink_count
+                st.session_state.status = status
+                st.session_state.ear_history = st.session_state.ear_history[1:] + [current_ear]
+            
+            # Determine display colors
+            if status == "OPTIMAL":
+                ear_color = "#00E676"
+                status_class = "status-optimal"
+            elif status == "HIGH STRAIN":
+                ear_color = "#FF1744"
+                status_class = "status-danger"
             else:
-                # Waiting state
-                ear_placeholder.markdown(
-                    '<div class="metric-value" style="color: #666;">--.---</div>', 
-                    unsafe_allow_html=True
-                )
-                blink_placeholder.markdown(
-                    '<div class="metric-value" style="color: #666;">0</div>', 
-                    unsafe_allow_html=True
-                )
-                status_placeholder.markdown(
-                    '<div class="metric-value status-warning" style="font-size: 20px;">⏳ Connecting...</div>', 
-                    unsafe_allow_html=True
-                )
-                coach_placeholder.info("⏳ Waiting for camera connection...")
+                ear_color = "#FFD600"
+                status_class = "status-warning"
+            
+            # Update EAR display
+            ear_display = f"{current_ear:.3f}" if current_ear > 0 else "0.000"
+            ear_placeholder.markdown(
+                f'<div class="metric-value {status_class}">{ear_display}</div>', 
+                unsafe_allow_html=True
+            )
+            
+            # Update Blink count
+            blink_placeholder.markdown(
+                f'<div class="metric-value" style="color: #BB86FC;">{blink_count}</div>', 
+                unsafe_allow_html=True
+            )
+            
+            # Update Status - No icons, just text
+            status_placeholder.markdown(
+                f'<div class="metric-value {status_class}" style="font-size: 20px;">{status}</div>', 
+                unsafe_allow_html=True
+            )
+            
+            # Update Chart
+            chart_placeholder.line_chart(
+                {"EAR": st.session_state.ear_history}, 
+                height=120, 
+                use_container_width=True
+            )
+            
+            # Coach message - No icons
+            if status == "NO FACE":
+                coach_placeholder.warning("Please position your face in front of the camera")
+            elif status == "HIGH STRAIN":
+                coach_placeholder.error("Eye strain detected. Consider taking a break.")
+            elif blink_count < 5:
+                coach_placeholder.success("System Active. Monitoring your eye health.")
+            else:
+                coach_placeholder.info("Remember the 20-20-20 rule")
                 
         except Exception as e:
             st.error(f"WebRTC Error: {str(e)}")
-            st.info("Try refreshing the page or check browser camera permissions.")
+            st.info("Please check camera permissions and refresh the page.")
     else:
-        st.info("📹 System standby. Enable the monitor in the sidebar to begin.")
+        st.info("System standby. Enable the monitor in the sidebar to begin.")
     
     st.markdown('</div>', unsafe_allow_html=True)
 
