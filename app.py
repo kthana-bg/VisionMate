@@ -14,12 +14,7 @@ try:
 except ImportError:
     TWILIO_AVAILABLE = False
 
-st.set_page_config(
-    page_title="VisionMate",
-    page_icon="",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+st.set_page_config(page_title="VisionMate", layout="wide", initial_sidebar_state="expanded")
 
 def init_session_state():
     if "ear_history" not in st.session_state:
@@ -96,7 +91,7 @@ with st.sidebar:
     run_monitor = st.checkbox("Enable Live AI Monitor", value=st.session_state.run_monitor, key="monitor_toggle")
     st.session_state.run_monitor = run_monitor
     threshold = st.slider("Blink Sensitivity (EAR Threshold)", min_value=0.15, max_value=0.30, value=0.20, step=0.01)
-    if st.button("Reset Session Stats", use_container_width=True):
+    if st.button("Reset Session Stats", width="stretch"):
         st.session_state.ear_history = [0.25] * 40
         st.session_state.current_ear = 0.0
         st.session_state.blink_count = 0
@@ -213,7 +208,7 @@ with col1:
             ear_placeholder.markdown(f'<div class="metric-value {status_class}">{ear_display}</div>', unsafe_allow_html=True)
             blink_placeholder.markdown(f'<div class="metric-value" style="color: #BB86FC;">{blink_count}</div>', unsafe_allow_html=True)
             status_placeholder.markdown(f'<div class="metric-value {status_class}" style="font-size: 20px;">{status}</div>', unsafe_allow_html=True)
-            chart_placeholder.line_chart({"EAR": st.session_state.ear_history}, height=120, use_container_width=True)
+            chart_placeholder.line_chart({"EAR": st.session_state.ear_history}, height=120, width="stretch")
             
             if status == "NO FACE":
                 coach_placeholder.warning("Please position your face in front of the camera")
