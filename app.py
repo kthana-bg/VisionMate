@@ -148,7 +148,7 @@ with st.sidebar:
                          min_value=0.15, max_value=0.30, 
                          value=0.20, step=0.01)
     
-     if st.button("Reset Session Stats", width="stretch"): 
+         if st.button("Reset Session Stats", width="stretch"): 
         st.session_state.ear_history = [0.25] * 40
         st.session_state.current_ear = 0.0
         st.session_state.blink_count = 0
