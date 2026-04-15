@@ -120,14 +120,27 @@ if run_monitor:
     with col1:
         ctx = webrtc_streamer(
             key="visionmate-stream",
+            # This makes it start automatically
+            mode=st.WebRtcMode.SENDRECV, 
             video_processor_factory=VideoProcessor,
+            # Enhanced network configuration
             rtc_configuration={
-                "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
+                "iceServers": [
+                    {"urls": ["stun:stun.l.google.com:19302"]},
+                    {"urls": ["stun:stun1.l.google.com:19302"]},
+                    {"urls": ["stun:stun2.l.google.com:19302"]},
+                    {"urls": ["stun:stun.services.mozilla.com"]}
+                ]
             },
-            media_stream_constraints={"video": True, "audio": False},
+            media_stream_constraints={
+                "video": True, 
+                "audio": False
+            },
+            # This helps the UI stay responsive while the video connects
+            async_processing=True, 
         )
     
-    # Update Dashboard from Processor data
+    # Analytics Update
     blink_text.markdown(f"<div class='metric-value'>{st.session_state.blink_total}</div>", unsafe_allow_html=True)
     
     if st.session_state.blink_total < 5:
