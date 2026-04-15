@@ -1,170 +1,225 @@
 import streamlit as st
 import cv2
 import numpy as np
+from detector import EyeStrainDetector
+from streamlit_webrtc import webrtc_streamer, WebRtcMode
 import av
 import threading
 import time
-from detector import EyeStrainDetector
-from streamlit_webrtc import webrtc_streamer, WebRtcMode
+import os
 
-# --- PAGE SETUP ---
+# Try to import Twilio, fallback if not available
+try:
+    from twilio.rest import Client
+    TWILIO_AVAILABLE = True
+except ImportError:
+    TWILIO_AVAILABLE = False
+
+# --- PAGE CONFIGURATION (MUST BE FIRST) ---
 st.set_page_config(
-    page_title="VisionMate | AI Eye-Strain Monitor",
+    page_title="VisionMate",
     page_icon="👁️",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
-# --- HUMANIZED CSS (Making it look modern and dark) ---
-st.markdown("""
-    <style>
-    .stApp {
-        background-color: #0e1117;
-        color: #ffffff;
-    }
-    /* Style the containers for a 'Glass' look */
-    [data-testid="column"] > div {
-        background: rgba(255, 255, 255, 0.05);
-        padding: 2rem;
-        border-radius: 15px;
-        border: 1px solid rgba(255, 255, 255, 0.1);
-    }
-    /* Big Metric Styles */
-    .metric-box {
-        text-align: center;
-        padding: 10px;
-    }
-    .metric-val {
-        font-size: 2.5rem;
-        font-weight: bold;
-        color: #bb86fc;
-    }
-    .metric-label {
-        font-size: 0.8rem;
-        text-transform: uppercase;
-        opacity: 0.7;
-    }
-    /* Hide the ugly default Streamlit WebRTC buttons */
-    button[kind="secondary"] {
-        display: none !important;
-    }
-    </style>
-""", unsafe_allow_html=True)
-
-# --- SHARED STATE MANAGEMENT ---
-# Since the camera runs in a background thread, we need a safe way to move 
-# data from the camera to the dashboard UI.
-class SessionData:
+# --- SHARED DATA CLASS (Thread-safe communication) ---
+class SharedMetrics:
     def __init__(self):
         self.lock = threading.Lock()
-        self.ear = 0.25
+        self.ear = 0.0
         self.blinks = 0
         self.status = "Initializing"
-        self.history = [0.25] * 50
-
+        self.history = [0.25] * 40
+    
     def update(self, ear, blinks, status):
         with self.lock:
             self.ear = ear
             self.blinks = blinks
             self.status = status
-            self.history = self.history[1:] + [ear]
+            if ear > 0:
+                self.history = self.history[1:] + [ear]
+    
+    def get(self):
+        with self.lock:
+            return self.ear, self.blinks, self.status, self.history
 
-# Initialize session data once
-if "data" not in st.session_state:
-    st.session_state.data = SessionData()
+# Initialize the shared metrics object in session state
+if "shared" not in st.session_state:
+    st.session_state.shared = SharedMetrics()
 
-# Cache the detector so we don't reload the AI model every time the screen flickers
-@st.cache_resource
-def load_detector():
-    return EyeStrainDetector()
+# --- ORIGINAL CUSTOM CSS ---
+st.markdown("""
+    <style>
+    .stApp {
+        background: linear-gradient(rgba(26, 26, 46, 0.9), rgba(26, 26, 46, 0.9)), 
+                    url("https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?ixlib=rb-4.0.3&auto=format&fit=crop&w=1920&q=80");
+        background-size: cover;
+        background-attachment: fixed;
+    }
+    section[data-testid="stSidebar"] {
+        background: rgba(40, 20, 80, 0.6) !important;
+        backdrop-filter: blur(20px) !important;
+    }
+    [data-testid="column"] > div {
+        background: rgba(255, 255, 255, 0.08) !important;
+        backdrop-filter: blur(25px);
+        border-radius: 24px !important;
+        border: 1px solid rgba(255, 255, 255, 0.2) !important;
+        padding: 30px !important;
+    }
+    h1, h2, h3 { color: #E0B0FF !important; font-weight: 300 !important; }
+    .metric-value { 
+        font-size: 48px; 
+        color: #BB86FC; 
+        text-shadow: 0 0 10px rgba(187, 134, 252, 0.5);
+        text-align: center;
+        font-weight: bold;
+    }
+    .metric-label {
+        font-size: 12px;
+        opacity: 0.7;
+        text-align: center;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        margin-bottom: 8px;
+    }
+    .status-optimal { color: #00E676 !important; }
+    .status-warning { color: #FFD600 !important; }
+    .status-danger { color: #FF1744 !important; }
+    
+    .video-container {
+        width: 100% !important;
+        border-radius: 16px !important;
+        overflow: hidden !important;
+    }
+    
+    /* Hide default webrtc buttons for clean UI */
+    button[kind="secondary"] { display: none !important; }
+    footer {visibility: hidden;}
+    </style>
+""", unsafe_allow_html=True)
 
-# --- THE VIDEO ENGINE ---
+# --- ICE SERVERS LOGIC ---
+def get_ice_servers():
+    account_sid = os.environ.get('TWILIO_ACCOUNT_SID')
+    auth_token = os.environ.get('TWILIO_AUTH_TOKEN')
+    if account_sid and auth_token and TWILIO_AVAILABLE:
+        try:
+            client = Client(account_sid, auth_token)
+            token = client.tokens.create()
+            return token.ice_servers
+        except: pass
+    return [{"urls": ["stun:stun.l.google.com:19302"]}]
+
+# --- SIDEBAR CONTROLS ---
+with st.sidebar:
+    st.markdown("## VisionMate Control")
+    run_monitor = st.checkbox("Enable Live AI Monitor", value=True)
+    threshold = st.slider("Blink Sensitivity", 0.15, 0.30, 0.20, 0.01)
+    
+    if st.button("Reset Session Stats", width="stretch"):
+        st.session_state.shared = SharedMetrics()
+        st.rerun()
+    
+    st.divider()
+    st.info("VisionMate monitors eye strain using AI-powered eye tracking.")
+
+# --- MAIN LAYOUT ---
+st.markdown("<h1 style='text-align: center;'>VISIONMATE</h1>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center; color: #B0B0B0;'>AI Eye-Strain Monitor and Ergonomic Coach</p>", unsafe_allow_html=True)
+
+col1, col2 = st.columns([1.8, 1])
+
+# --- VIDEO PROCESSOR (Fixed for 2025) ---
 class VideoProcessor:
     def __init__(self):
-        self.detector = load_detector()
-        self.threshold = 0.20 # Sensitivity
+        self.detector = EyeStrainDetector()
+        self.frame_counter = 0
 
     def recv(self, frame):
-        # 1. Convert frame to numpy array
         img = frame.to_ndarray(format="bgr24")
-        img = cv2.flip(img, 1) # Mirror effect
+        img = cv2.flip(img, 1)
+        h, w, _ = img.shape
         
-        # 2. Run the AI Detection
-        ear, landmarks, annotated_img = self.detector.process_frame(img)
-        
-        # 3. Handle Blink Logic
-        if ear > 0:
-            blinks, _ = self.detector.update_blink_state(ear, self.threshold)
-            status = "OPTIMAL" if ear >= self.threshold else "HIGH STRAIN"
-            # Send data to the UI thread
-            st.session_state.data.update(ear, blinks, status)
-        else:
-            st.session_state.data.update(0.0, st.session_state.data.blinks, "NO FACE")
-
-        # 4. Return the processed frame to the browser
-        return av.VideoFrame.from_ndarray(annotated_img, format="bgr24")
-
-# --- UI LAYOUT ---
-st.title("VISIONMATE")
-st.markdown("AI-Powered Eye Health Assistant")
-
-col1, col2 = st.columns([1.5, 1])
-
-with col1:
-    st.subheader("Live Feed")
-    # This starts the camera automatically
-    ctx = webrtc_streamer(
-        key="visionmate-v1",
-        mode=WebRtcMode.SENDRECV,
-        video_processor_factory=VideoProcessor,
-        rtc_configuration={
-            "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
-        },
-        media_stream_constraints={"video": True, "audio": False},
-        async_processing=True,
-        desired_playing_state=True, # Auto-starts camera
-    )
-
-with col2:
-    st.subheader("Real-time Stats")
-    
-    # Create empty slots so we can update values without refreshing the whole page
-    ear_slot = st.empty()
-    blink_slot = st.empty()
-    status_slot = st.empty()
-    chart_slot = st.empty()
-    coach_slot = st.empty()
-
-    # Loop to pull data from the camera thread and show it on the UI
-    if ctx.state.playing:
-        while ctx.state.playing:
-            # Grab the latest numbers
-            ear = st.session_state.data.ear
-            blinks = st.session_state.data.blinks
-            status = st.session_state.data.status
-            history = st.session_state.data.history
-
-            # Update UI components
-            ear_slot.markdown(f'<div class="metric-box"><div class="metric-label">Eye Aperture (EAR)</div><div class="metric-val">{ear:.3f}</div></div>', unsafe_allow_html=True)
-            blink_slot.markdown(f'<div class="metric-box"><div class="metric-label">Total Blinks</div><div class="metric-val">{blinks}</div></div>', unsafe_allow_html=True)
-            
-            # Status styling
-            color = "#00E676" if status == "OPTIMAL" else "#FF1744"
-            status_slot.markdown(f"<h3 style='text-align:center; color:{color};'>{status}</h3>", unsafe_allow_html=True)
-            
-            # Chart - using 'width="stretch"' for 2025 compatibility
-            chart_slot.line_chart(history, height=150, width="stretch")
-
-            # Coaching Logic
-            if status == "HIGH STRAIN":
-                coach_slot.error("⚠️ You aren't blinking enough! Look away for 20 seconds.")
-            elif blinks < 5:
-                coach_slot.info("System monitoring... Keep your head centered.")
+        self.frame_counter += 1
+        # Process every 2nd frame for stability
+        if self.frame_counter % 2 == 0:
+            ear, _, _ = self.detector.process_frame(img)
+            if ear > 0:
+                blinks, _ = self.detector.update_blink_state(ear, threshold)
+                status = "OPTIMAL" if ear >= threshold else "HIGH STRAIN"
+                st.session_state.shared.update(ear, blinks, status)
             else:
-                coach_slot.success("Doing great! Remember the 20-20-20 rule.")
-            
-            time.sleep(0.1) # Prevents the CPU from exploding
-    else:
-        st.warning("Camera is currently stopped. Please allow access to start monitoring.")
+                st.session_state.shared.update(0.0, st.session_state.shared.blinks, "NO FACE")
 
-st.divider()
-st.caption("VisionMate FYP | Powered by MediaPipe & Streamlit")
+        # Draw status border
+        current_ear, _, status, _ = st.session_state.shared.get()
+        color = (50, 255, 150) if status == "OPTIMAL" else (50, 50, 255) if status == "HIGH STRAIN" else (128, 128, 128)
+        cv2.rectangle(img, (0, 0), (w-1, h-1), color, 6)
+        
+        return av.VideoFrame.from_ndarray(img, format="bgr24")
+
+# --- ANALYTICS COLUMN ---
+with col2:
+    st.subheader("Session Analytics")
+    
+    st.markdown('<p class="metric-label">Current EAR</p>', unsafe_allow_html=True)
+    ear_placeholder = st.empty()
+    
+    st.markdown('<p class="metric-label">Total Blinks</p>', unsafe_allow_html=True)
+    blink_placeholder = st.empty()
+    
+    st.markdown('<p class="metric-label">System Status</p>', unsafe_allow_html=True)
+    status_placeholder = st.empty()
+    
+    st.divider()
+    st.markdown('<p class="metric-label">EAR History</p>', unsafe_allow_html=True)
+    chart_placeholder = st.empty()
+    
+    st.divider()
+    st.subheader("Real-time Coach")
+    coach_placeholder = st.empty()
+
+# --- VIDEO FEED COLUMN ---
+with col1:
+    st.subheader("Live AI Vision Feed")
+    if run_monitor:
+        ctx = webrtc_streamer(
+            key="visionmate-stable",
+            mode=WebRtcMode.SENDRECV,
+            video_processor_factory=VideoProcessor,
+            rtc_configuration={"iceServers": get_ice_servers()},
+            media_stream_constraints={"video": True, "audio": False},
+            async_processing=True,
+            desired_playing_state=True,
+            video_html_attrs={
+                "style": {"width": "100%", "height": "auto", "border-radius": "16px"},
+                "controls": False, "autoPlay": True, "playsInline": True, "muted": True
+            }
+        )
+
+        # Update UI Loop
+        if ctx.state.playing:
+            while ctx.state.playing:
+                ear, blinks, status, history = st.session_state.shared.get()
+                
+                # Update Labels
+                status_class = "status-optimal" if status == "OPTIMAL" else "status-danger" if status == "HIGH STRAIN" else "status-warning"
+                
+                ear_placeholder.markdown(f'<div class="metric-value {status_class}">{ear:.3f}</div>', unsafe_allow_html=True)
+                blink_placeholder.markdown(f'<div class="metric-value" style="color: #BB86FC;">{blinks}</div>', unsafe_allow_html=True)
+                status_placeholder.markdown(f'<div class="metric-value {status_class}" style="font-size: 20px;">{status}</div>', unsafe_allow_html=True)
+                
+                chart_placeholder.line_chart(history, height=120, width="stretch")
+                
+                if status == "HIGH STRAIN":
+                    coach_placeholder.error("Eye strain detected. Consider taking a break.")
+                elif status == "NO FACE":
+                    coach_placeholder.warning("Face not detected.")
+                else:
+                    coach_placeholder.success("System Active. Remember to blink!")
+                
+                time.sleep(0.1)
+    else:
+        st.info("System standby. Enable the monitor in the sidebar.")
