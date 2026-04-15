@@ -6,6 +6,14 @@ from streamlit_webrtc import webrtc_streamer, VideoTransformerBase, WebRtcMode
 import av
 import threading
 import time
+import os
+
+# Try to import Twilio, fallback if not available
+try:
+    from twilio.rest import Client
+    TWILIO_AVAILABLE = True
+except ImportError:
+    TWILIO_AVAILABLE = False
 
 # MUST BE FIRST: Page configuration
 st.set_page_config(
@@ -15,7 +23,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# CRITICAL: Initialize session state BEFORE any other Streamlit code
+# Initialize session state
 def init_session_state():
     if "ear_history" not in st.session_state:
         st.session_state.ear_history = [0.25] * 40
@@ -51,10 +59,49 @@ st.markdown("""
         text-shadow: 0 0 10px rgba(187, 134, 252, 0.5);
         text-align: center;
     }
-    .stAlert { border-radius: 12px !important; }
     footer {visibility: hidden;}
     </style>
 """, unsafe_allow_html=True)
+
+# Function to get ICE servers (Twilio or fallback)
+def get_ice_servers():
+    account_sid = os.environ.get('TWILIO_ACCOUNT_SID')
+    auth_token = os.environ.get('TWILIO_AUTH_TOKEN')
+    
+    if account_sid and auth_token and TWILIO_AVAILABLE:
+        try:
+            client = Client(account_sid, auth_token)
+            token = client.tokens.create()
+            st.success("Using Twilio TURN servers")
+            return token.ice_servers
+        except Exception as e:
+            st.warning(f"Twilio failed ({e}), using Open Relay fallback")
+    else:
+        if not TWILIO_AVAILABLE:
+            st.info("ℹ️ Twilio not installed, using Open Relay")
+        elif not account_sid:
+            st.info("ℹ️ Twilio credentials not set, using Open Relay")
+    
+    # Fallback Open Relay servers
+    return [
+        {"urls": ["stun:stun.l.google.com:19302"]},
+        {"urls": ["stun:stun1.l.google.com:19302"]},
+        {
+            "urls": ["turn:openrelay.metered.ca:80"],
+            "username": "openrelayproject",
+            "credential": "openrelayproject"
+        },
+        {
+            "urls": ["turn:openrelay.metered.ca:443"],
+            "username": "openrelayproject",
+            "credential": "openrelayproject"
+        },
+        {
+            "urls": ["turn:openrelay.metered.ca:443?transport=tcp"],
+            "username": "openrelayproject",
+            "credential": "openrelayproject"
+        }
+    ]
 
 # Sidebar
 with st.sidebar:
@@ -85,41 +132,35 @@ st.markdown("<p style='text-align: center; color: #B0B0B0;'>AI Eye-Strain Monito
 
 col1, col2 = st.columns([1.8, 1])
 
-# Video Processor - Creates its own detector instance (thread-safe)
+# Video Processor
 class VideoProcessor(VideoTransformerBase):
     def __init__(self):
-        # Create new detector instance for this thread
         self.detector = EyeStrainDetector()
         self.threshold = 0.20
         self.blink_count = 0
         self.current_ear = 0.25
         self.status = "Initializing..."
-        self.last_update = time.time()
         
     def transform(self, frame):
         try:
             img = frame.to_ndarray(format="bgr24")
-            img = cv2.flip(img, 1)  # Mirror
+            img = cv2.flip(img, 1)
             h, w, _ = img.shape
             
-            # Process at lower resolution for performance
+            # Process at lower resolution
             small_img = cv2.resize(img, (320, 240))
-            
-            # Detect
             ear, landmarks, _ = self.detector.process_frame(small_img)
             
-            # Update blink detection
             if ear > 0:
                 current_blinks, _ = self.detector.update_blink_state(ear, self.threshold)
                 self.blink_count = current_blinks
                 self.current_ear = ear
                 
-                # Determine status
                 if ear < self.threshold:
-                    color = (255, 50, 50)  # Red
+                    color = (255, 50, 50)
                     status = "HIGH STRAIN"
                 else:
-                    color = (50, 255, 150)  # Green
+                    color = (50, 255, 150)
                     status = "OPTIMAL"
             else:
                 color = (128, 128, 128)
@@ -128,15 +169,12 @@ class VideoProcessor(VideoTransformerBase):
             
             self.status = status
             
-            # Draw UI on original frame
+            # Draw UI
             cv2.rectangle(img, (0, 0), (w-1, h-1), color, 4)
-            
-            # Info panel
             overlay = img.copy()
             cv2.rectangle(overlay, (10, 10), (400, 140), (0, 0, 0), -1)
             cv2.addWeighted(overlay, 0.6, img, 0.4, 0, img)
             
-            # Text
             cv2.putText(img, f"EAR: {self.current_ear:.3f}", (20, 50), 
                        cv2.FONT_HERSHEY_SIMPLEX, 0.9, color, 2)
             cv2.putText(img, f"Blinks: {self.blink_count}", (20, 90), 
@@ -147,7 +185,6 @@ class VideoProcessor(VideoTransformerBase):
             return img
             
         except Exception as e:
-            # Return error frame
             img = frame.to_ndarray(format="bgr24")
             cv2.putText(img, f"Error: {str(e)[:50]}", (50, 100), 
                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
@@ -178,72 +215,44 @@ with col2:
     st.subheader("Real-time Coach")
     coach_placeholder = st.empty()
 
-# Video Feed Column
+# Video Feed
 with col1:
     st.subheader("Live AI Vision Feed")
     
     if st.session_state.run_monitor:
-        # CRITICAL FIX: Use TURN server for Streamlit Cloud
-        # Open Relay provides free TURN servers
+        # Get ICE servers (Twilio or fallback)
+        ice_servers = get_ice_servers()
+        
         rtc_configuration = {
-            "iceServers": [
-                # Multiple STUN servers for redundancy
-                {"urls": ["stun:stun.l.google.com:19302"]},
-                {"urls": ["stun:stun1.l.google.com:19302"]},
-                {"urls": ["stun:stun2.l.google.com:19302"]},
-                # FREE TURN server from Open Relay (required for Streamlit Cloud)
-                {
-                    "urls": ["turn:openrelay.metered.ca:80"],
-                    "username": "openrelayproject",
-                    "credential": "openrelayproject"
-                },
-                {
-                    "urls": ["turn:openrelay.metered.ca:443"],
-                    "username": "openrelayproject",
-                    "credential": "openrelayproject"
-                },
-                {
-                    "urls": ["turn:openrelay.metered.ca:443?transport=tcp"],
-                    "username": "openrelayproject",
-                    "credential": "openrelayproject"
-                }
-            ],
-            "iceTransportPolicy": "all"  # Allow both STUN and TURN
+            "iceServers": ice_servers,
+            "iceTransportPolicy": "all"
         }
         
         media_constraints = {
             "video": {
-                "width": {"ideal": 640, "max": 1280},
-                "height": {"ideal": 480, "max": 720},
-                "frameRate": {"ideal": 15, "max": 30}
+                "width": {"ideal": 640},
+                "height": {"ideal": 480},
+                "frameRate": {"ideal": 15}
             },
             "audio": False
         }
         
         try:
-            # Use unique key to avoid conflicts
             ctx = webrtc_streamer(
-                key="visionmate-turn-v1",
+                key="visionmate-twilio-v1",
                 mode=WebRtcMode.SENDRECV,
                 video_processor_factory=VideoProcessor,
                 rtc_configuration=rtc_configuration,
                 media_stream_constraints=media_constraints,
                 async_processing=True,
-                video_html_attrs={
-                    "style": {"width": "100%", "height": "auto", "max-height": "480px"},
-                    "controls": False,
-                    "autoPlay": True
-                }
             )
             
-            # Get processor instance to read values
             if ctx and ctx.video_processor:
                 processor = ctx.video_processor
                 ear_value = processor.current_ear if processor.current_ear > 0 else 0.25
                 blink_count = processor.blink_count
                 status = processor.status
                 
-                # Update UI
                 ear_color = "#BB86FC" if status == "OPTIMAL" else "#FF1744" if status == "HIGH STRAIN" else "#FFD600"
                 
                 ear_placeholder.markdown(
@@ -256,7 +265,6 @@ with col1:
                     unsafe_allow_html=True
                 )
                 
-                # Update chart
                 st.session_state.ear_history = st.session_state.ear_history[1:] + [ear_value]
                 chart_placeholder.line_chart(
                     {"EAR": st.session_state.ear_history}, 
@@ -264,17 +272,15 @@ with col1:
                     use_container_width=True
                 )
                 
-                # Coach message
                 if status == "NO FACE":
-                    coach_placeholder.warning("👤 Please position your face in front of the camera")
+                    coach_placeholder.warning("Please position your face in front of the camera")
                 elif status == "HIGH STRAIN":
-                    coach_placeholder.error("⚠️ Eye strain detected! Take a break.")
+                    coach_placeholder.error("Eye strain detected! Take a break.")
                 elif blink_count < 5:
-                    coach_placeholder.success("✅ System Active: Monitoring...")
+                    coach_placeholder.success("System Active: Monitoring...")
                 else:
-                    coach_placeholder.info("💡 Remember the 20-20-20 rule!")
+                    coach_placeholder.info("Remember the 20-20-20 rule!")
             else:
-                # Waiting for connection
                 ear_placeholder.markdown("<div class='metric-value'>--.---</div>", unsafe_allow_html=True)
                 blink_placeholder.markdown("<div class='metric-value'>0</div>", unsafe_allow_html=True)
                 coach_placeholder.info("⏳ Waiting for camera connection...")
@@ -282,7 +288,6 @@ with col1:
         except Exception as e:
             st.error(f"WebRTC Error: {str(e)}")
             st.info("Try refreshing the page or check browser camera permissions.")
-            
     else:
         st.info("📹 System standby. Enable the monitor in the sidebar to begin.")
 
