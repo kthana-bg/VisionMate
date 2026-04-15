@@ -11,6 +11,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# Custom Glassmorphism UI
 st.markdown("""
     <style>
     .stApp {
@@ -18,17 +19,10 @@ st.markdown("""
                     url("https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?ixlib=rb-4.0.3&auto=format&fit=crop&w=1920&q=80");
         background-size: cover;
     }
-
     section[data-testid="stSidebar"] {
         background: rgba(40, 20, 80, 0.5) !important;
         backdrop-filter: blur(20px) !important;
-        border-right: 1px solid rgba(255, 255, 255, 0.1);
     }
-
-    section[data-testid="stSidebar"] .stText, section[data-testid="stSidebar"] label {
-        color: #E0B0FF !important;
-    }
-
     [data-testid="column"] > div {
         background: rgba(255, 255, 255, 0.05) !important;
         backdrop-filter: blur(25px);
@@ -36,77 +30,55 @@ st.markdown("""
         border: 1px solid rgba(255, 255, 255, 0.15) !important;
         padding: 30px !important;
     }
-
-    h1, h2, h3 {
-        color: #E0B0FF !important;
-        font-weight: 300 !important;
-    }
-
-    .metric-value {
-        font-size: 52px;
-        font-weight: 200;
-        color: #BB86FC;
-    }
-
+    h1, h2, h3 { color: #E0B0FF !important; font-weight: 300 !important; }
+    .metric-value { font-size: 48px; color: #BB86FC; text-shadow: 0 0 10px rgba(187, 134, 252, 0.5); }
     footer {visibility: hidden;}
     </style>
 """, unsafe_allow_html=True)
 
+# Initialize Session State properly
+if "blink_total" not in st.session_state:
+    st.session_state.blink_total = 0
+if "ear_history" not in st.session_state:
+    st.session_state.ear_history = [0.25] * 40
 
-# ================= SIDEBAR =================
+# Sidebar
 with st.sidebar:
     st.markdown("## VisionMate Control")
     run_monitor = st.checkbox("Enable Live AI Monitor", value=True)
+    if st.button("Reset Session Stats"):
+        st.session_state.blink_total = 0
+        st.rerun()
     st.divider()
 
-
-# ================= TITLE =================
 st.markdown("<h1 style='text-align: center;'>VISIONMATE</h1>", unsafe_allow_html=True)
 
 col1, col2 = st.columns([1.6, 1])
 
 with col1:
-    st.subheader("Live Vision Stream")
-    status_placeholder = st.empty()
+    st.subheader("Live AI Vision Feed")
+    # WebRTC container will appear here
 
 with col2:
     st.subheader("Session Analytics")
-
     m_col1, m_col2 = st.columns(2)
-
     with m_col1:
-        st.markdown("<p style='font-size:12px;'>EYE ASPECT RATIO</p>", unsafe_allow_html=True)
-        ear_placeholder = st.empty()
-
+        st.markdown("<p style='font-size:12px; opacity:0.7;'>CURRENT EAR</p>", unsafe_allow_html=True)
+        ear_text = st.empty()
     with m_col2:
-        st.markdown("<p style='font-size:12px;'>TOTAL BLINKS</p>", unsafe_allow_html=True)
-        blink_placeholder = st.empty()
+        st.markdown("<p style='font-size:12px; opacity:0.7;'>TOTAL BLINKS</p>", unsafe_allow_html=True)
+        blink_text = st.empty()
 
     st.divider()
-    st.subheader("Coach Recommendations")
-    suggestions = st.empty()
+    st.subheader("Real-time Coach")
+    coach_msg = st.empty()
 
-
-# ================= SESSION STATE =================
-if "blink_total" not in st.session_state:
-    st.session_state.blink_total = 0
-
-if "ear_history" not in st.session_state:
-    st.session_state.ear_history = [0.25] * 40
-
-
-# ================= DETECTOR =================
+# Detector Logic
 @st.cache_resource
 def load_detector():
     return EyeStrainDetector()
 
-detector = load_detector()
-threshold = 0.20
-
-
-# ================= VIDEO PROCESSOR =================
 class VideoProcessor(VideoTransformerBase):
-
     def __init__(self):
         self.detector = load_detector()
         self.threshold = 0.20
@@ -115,69 +87,53 @@ class VideoProcessor(VideoTransformerBase):
     def transform(self, frame):
         img = frame.to_ndarray(format="bgr24")
         img = cv2.flip(img, 1)
+        h, w, _ = img.shape
 
-        ear, landmarks = self.detector.process_frame(img)
+        ear, _ = self.detector.process_frame(img)
 
-        # update history
+        # AI Feedback Logic
+        color = (6, 214, 160) # Default Green (Optimal)
+        status_label = "STATE: OPTIMAL"
+
         if ear > 0:
-            st.session_state.ear_history.append(ear)
-            st.session_state.ear_history = st.session_state.ear_history[-40:]
-
-            # blink detection
+            # Blink Detection logic
             if ear < self.threshold:
                 self.blink_active = True
+                color = (75, 75, 255) # Red (Strain)
+                status_label = "STATE: HIGH STRAIN"
             else:
                 if self.blink_active:
                     st.session_state.blink_total += 1
                     self.blink_active = False
 
-        # update UI
-        ear_placeholder.markdown(
-            f"<div class='metric-value'>{ear:.3f}</div>",
-            unsafe_allow_html=True
-        )
-
-        blink_placeholder.markdown(
-            f"<div class='metric-value'>{st.session_state.blink_total}</div>",
-            unsafe_allow_html=True
-        )
-
-        # coach logic
-        if ear > 0 and ear < self.threshold:
-            status_placeholder.markdown(
-                "<span style='color:#ff4b4b;font-weight:bold;'>STATE: HIGH STRAIN / EYE CLOSED</span>",
-                unsafe_allow_html=True
-            )
-            suggestions.warning(
-                "Coach: High eye strain detected. Look 20 feet away for 20 seconds."
-            )
-
-        elif ear == 0:
-            status_placeholder.markdown(
-                "<span style='color:#ffd166;'>STATE: SEARCHING FOR USER...</span>",
-                unsafe_allow_html=True
-            )
-
+            # Draw AI Visuals on the Frame
+            cv2.putText(img, f"EAR: {ear:.3f}", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
+            cv2.putText(img, status_label, (20, h - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+            cv2.rectangle(img, (0, 0), (w, h), color, 4)
         else:
-            status_placeholder.markdown(
-                "<span style='color:#06d6a0;font-weight:bold;'>STATE: OPTIMAL FLOW</span>",
-                unsafe_allow_html=True
-            )
-            suggestions.success(
-                "Coach: Good blink rhythm. Keep it up!"
-            )
+            cv2.putText(img, "SEARCHING FOR FACE...", (w//4, h//2), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
         return img
 
-
-# ================= MAIN APP =================
+# Main App Execution
 if run_monitor:
-
-    webrtc_streamer(
-        key="visionmate",
-        video_processor_factory=VideoProcessor,
-        media_stream_constraints={"video": True, "audio": False},
-    )
+    with col1:
+        ctx = webrtc_streamer(
+            key="visionmate-stream",
+            video_processor_factory=VideoProcessor,
+            rtc_configuration={
+                "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
+            },
+            media_stream_constraints={"video": True, "audio": False},
+        )
+    
+    # Update Dashboard from Processor data
+    blink_text.markdown(f"<div class='metric-value'>{st.session_state.blink_total}</div>", unsafe_allow_html=True)
+    
+    if st.session_state.blink_total < 5:
+        coach_msg.success("You are maintaining great focus!")
+    else:
+        coach_msg.warning("Consider taking a short break soon.")
 
 else:
-    status_placeholder.info("Monitoring Paused. Enable via Sidebar.")
+    st.info("System standby. Enable the monitor in the sidebar to begin.")
