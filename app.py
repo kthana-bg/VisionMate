@@ -106,7 +106,7 @@ def load_detector():
 
 detector = load_detector()
 threshold = 0.20
-if 'ear_history' not in st.session_stat9e:
+if 'ear_history' not in st.session_state:
     st.session_state.ear_history = [0.25] * 40
 if 'blink_total' not in st.session_state:
     st.session_state.blink_total = 0
