@@ -4,7 +4,7 @@ streamlit==1.36.0
 # WebRTC
 streamlit-webrtc==0.47.6
 aiortc==1.9.0
-av==17.0.1
+av==12.0.0
 
 # Computer vision
 opencv-python-headless==4.9.0.80
