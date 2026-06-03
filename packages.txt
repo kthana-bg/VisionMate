@@ -1,16 +1,2 @@
-ffmpeg
-libavcodec-dev
-libavformat-dev
-libavutil-dev
-libavdevice-dev
-libavfilter-dev
-libswscale-dev
-libswresample-dev
-pkg-config
-# WebRTC media libraries
-libsrtp2-dev
-libopus-dev
-libvpx-dev
-# OpenCV headless dependencies
 libgl1
 libglib2.0-0
