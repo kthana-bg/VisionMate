@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>VisionMate Tracking</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision"></script>
+    <style>
+        /* Mimic Streamlit Dark Theme */
+        body { background-color: #0e1117; color: #fafafa; font-family: "Source Sans Pro", sans-serif; margin: 0; display: flex; gap: 20px; }
+        .video-column { flex: 2; background: #1e2130; border-radius: 8px; padding: 0; display: flex; flex-direction: column; overflow: hidden; }
+        canvas { width: 100%; background: #000; }
+        .timer { padding: 10px 15px; font-size: 13px; color: #aaa; }
+        .metrics-column { flex: 1; display: flex; flex-direction: column; gap: 12px; }
+        .metric-card { background: #1e2130; border-radius: 8px; padding: 15px 20px; border-left: 4px solid #555; }
+        .metric-card.green { border-left-color: #2ecc71; }
+        .metric-card.red { border-left-color: #e74c3c; }
+        .metric-title { font-size: 11px; color: #aaa; text-transform: uppercase; letter-spacing: 1px; margin: 0 0 6px 0; }
+        .metric-value { font-size: 26px; font-weight: bold; margin: 0 0 6px 0; }
+        .metric-value.green-text { color: #2ecc71; }
+        .metric-value.red-text { color: #e74c3c; }
+        .metric-sub { font-size: 12px; color: #aaa; margin: 0; }
+        .info-card { background: #1e2130; border-radius: 8px; padding: 12px 15px; font-size: 12px; color: #aaa; line-height: 1.6; }
+        .face-status { padding: 10px 15px; border-radius: 6px; font-size: 13px; font-weight: 600; }
+        .face-detected { background: rgba(46, 204, 113, 0.1); border: 1px solid #2ecc71; color: #2ecc71; }
+        .no-face { background: rgba(231, 76, 60, 0.1); border: 1px solid #e74c3c; color: #e74c3c; }
+    </style>
+</head>
+<body>
+
+    <div class="video-column">
+        <video id="webcam" autoplay playsinline style="display: none;"></video>
+        <canvas id="output_canvas" width="640" height="480"></canvas>
+        <div class="timer" id="session-timer">Session started...</div>
+    </div>
+
+    <div class="metrics-column">
+        <div class="metric-card green" id="card-health">
+            <p class="metric-title">Health Score</p>
+            <p class="metric-value green-text" id="val-health">100 / 100</p>
+            <p class="metric-sub">Combined eye and posture</p>
+        </div>
+        
+        <div class="metric-card green" id="card-eye">
+            <p class="metric-title">Eye Status</p>
+            <p class="metric-value green-text" id="val-eye">Normal</p>
+            <p class="metric-sub" id="sub-eye">EAR: 0.000</p>
+        </div>
+
+        <div class="metric-card green" id="card-posture">
+            <p class="metric-title">Posture Status</p>
+            <p class="metric-value green-text" id="val-posture">Good</p>
+            <p class="metric-sub" id="sub-posture">Neck angle: 0.0 deg</p>
+        </div>
+
+        <div class="info-card">
+            <b>Eye model:</b> Rule-Based JS (EAR)<br>
+            <b>Posture model:</b> MediaPipe Pose JS<br>
+            Processing: Local Browser
+        </div>
+
+        <div class="face-status no-face" id="face-status-bar">Waiting for camera...</div>
+    </div>
+
+    <script type="module">
+        import { FaceLandmarker, PoseLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision";
+
+        const video = document.getElementById('webcam');
+        const canvas = document.getElementById('output_canvas');
+        const ctx = canvas.getContext('2d');
+        
+        let faceLandmarker;
+        let poseLandmarker;
+
+        // --- MATH FUNCTIONS ---
+        function getDistance(p1, p2) {
+            return Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2));
+        }
+
+        // Calculate Eye Aspect Ratio (EAR)
+        function calculateEAR(landmarks, leftIndices, rightIndices) {
+            const leftV1 = getDistance(landmarks[leftIndices[1]], landmarks[leftIndices[5]]);
+            const leftV2 = getDistance(landmarks[leftIndices[2]], landmarks[leftIndices[4]]);
+            const leftH  = getDistance(landmarks[leftIndices[0]], landmarks[leftIndices[3]]);
+            const leftEAR = (leftV1 + leftV2) / (2.0 * leftH);
+
+            const rightV1 = getDistance(landmarks[rightIndices[1]], landmarks[rightIndices[5]]);
+            const rightV2 = getDistance(landmarks[rightIndices[2]], landmarks[rightIndices[4]]);
+            const rightH  = getDistance(landmarks[rightIndices[0]], landmarks[rightIndices[3]]);
+            const rightEAR = (rightV1 + rightV2) / (2.0 * rightH);
+
+            return (leftEAR + rightEAR) / 2.0;
+        }
+
+        // Load Models
+        async function initializeModels() {
+            const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm");
+            
+            faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
+                baseOptions: { modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task" },
+                runningMode: "VIDEO", numFaces: 1
+            });
+
+            poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
+                baseOptions: { modelAssetPath: "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task" },
+                runningMode: "VIDEO", numPoses: 1
+            });
+            
+            startWebcam();
+        }
+
+        async function startWebcam() {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
+            video.srcObject = stream;
+            video.addEventListener('loadeddata', predictWebcam);
+        }
+
+        // Main 30 FPS Loop
+        async function predictWebcam() {
+            let startTimeMs = performance.now();
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            // 1. Process Face & Eyes
+            if (faceLandmarker) {
+                const faceResults = faceLandmarker.detectForVideo(video, startTimeMs);
+                const faceStatusBar = document.getElementById('face-status-bar');
+
+                if (faceResults.faceLandmarks && faceResults.faceLandmarks.length > 0) {
+                    faceStatusBar.innerText = "Face Detected";
+                    faceStatusBar.className = "face-status face-detected";
+
+                    const landmarks = faceResults.faceLandmarks[0];
+                    // MediaPipe Eye Indices
+                    const leftEye = [33, 160, 158, 133, 153, 144];
+                    const rightEye = [362, 385, 387, 263, 373, 380];
+                    
+                    const ear = calculateEAR(landmarks, leftEye, rightEye);
+                    
+                    // Update Eye UI
+                    document.getElementById('sub-eye').innerText = `EAR: ${ear.toFixed(3)}`;
+                    if (ear < 0.22) { // Strain / Sleepy threshold
+                        document.getElementById('val-eye').innerText = "Strained / Blinking";
+                        document.getElementById('val-eye').className = "metric-value red-text";
+                        document.getElementById('card-eye').className = "metric-card red";
+                    } else {
+                        document.getElementById('val-eye').innerText = "Normal";
+                        document.getElementById('val-eye').className = "metric-value green-text";
+                        document.getElementById('card-eye').className = "metric-card green";
+                    }
+                } else {
+                    faceStatusBar.innerText = "No Face";
+                    faceStatusBar.className = "face-status no-face";
+                }
+            }
+
+            // 2. Process Posture
+            if (poseLandmarker) {
+                const poseResults = poseLandmarker.detectForVideo(video, startTimeMs);
+                if (poseResults.landmarks && poseResults.landmarks.length > 0) {
+                    const pose = poseResults.landmarks[0];
+                    const nose = pose[0];
+                    const leftShoulder = pose[11];
+                    const rightShoulder = pose[12];
+                    
+                    // Basic neck angle based on nose dropping relative to shoulders
+                    const shoulderMidY = (leftShoulder.y + rightShoulder.y) / 2;
+                    const dropDistance = shoulderMidY - nose.y; 
+                    
+                    // Convert drop distance to an approximate "angle/score"
+                    const postureScore = Math.max(0, dropDistance * 100);
+
+                    document.getElementById('sub-posture').innerText = `Neck score: ${postureScore.toFixed(1)}`;
+                    if (postureScore < 15) { // Slouching threshold
+                        document.getElementById('val-posture').innerText = "Slouching";
+                        document.getElementById('val-posture').className = "metric-value red-text";
+                        document.getElementById('card-posture').className = "metric-card red";
+                    } else {
+                        document.getElementById('val-posture').innerText = "Good";
+                        document.getElementById('val-posture').className = "metric-value green-text";
+                        document.getElementById('card-posture').className = "metric-card green";
+                    }
+                }
+            }
+
+            window.requestAnimationFrame(predictWebcam);
+        }
+
+        initializeModels();
+    </script>
+</body>
+</html>
