@@ -1,15 +1,3 @@
-"""
-VisionMate - app.py
-====================
-Entry point for the Streamlit application.
-
-Key change from broken version:
-  - Models are stored in st.session_state["_eye_models"] and
-    st.session_state["_posture_models"] so monitoring_tab.py
-    can retrieve and inject them directly into VisionMateTransformer.
-  - frontend.html is no longer used; WebRTC handles the video feed.
-"""
-
 import streamlit as st
 import sys
 import os
