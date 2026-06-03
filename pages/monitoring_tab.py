@@ -135,25 +135,22 @@ def _render_webrtc_monitoring(
     """
     from streamlit_webrtc import webrtc_streamer, WebRtcMode, RTCConfiguration
 
-    # TURN server config — required for cloud deployment behind NAT.
-    # Free TURN credentials from Twilio or Metered.ca work here.
-    # Without TURN the ICE negotiation sometimes fails in restricted networks.
-    # Set TURN_URL / TURN_USER / TURN_CREDENTIAL as Streamlit Secrets or env vars.
     turn_url  = os.environ.get("TURN_URL",  "")
     turn_user = os.environ.get("TURN_USER", "")
     turn_pass = os.environ.get("TURN_CREDENTIAL", "")
 
-    ice_servers = [{"urls": ["stun:stun.l.google.com:19302"]}]
+    ice_servers = [
+        {"urls": ["stun:stun.l.google.com:19302"]}
+    ]
+    
     if turn_url:
         ice_servers.append({
-            "urls":       [turn_url],
-            "username":   turn_user,
+            "urls": [turn_url],
+            "username": turn_user,
             "credential": turn_pass,
         })
-
-    rtc_config = RTCConfiguration(
-        {"iceServers": ice_servers}
-    )
+    
+    rtc_config = RTCConfiguration({"iceServers": ice_servers})
 
     # Load MediaPipe once
     face_lm, pose_lm = _get_landmarkers()
@@ -170,9 +167,6 @@ def _render_webrtc_monitoring(
         t.posture_model_name = posture_model_name
         return t
 
-    # Session timer start
-    if not st.session_state.get("session_start"):
-        st.session_state["session_start"] = time.time()
 
     video_col, metrics_col = st.columns([2, 1])
 
@@ -195,20 +189,21 @@ def _render_webrtc_monitoring(
         )
 
         # Session timer
-        if "session_start" in st.session_state:
-            start_time = st.session_state.get("session_start")
-            if start_time is None:
-                start_time = time.time()
-                st.session_state["session_start"] = start_time
-            
-            elapsed = int(time.time() - start_time)
-            mins, secs = divmod(elapsed, 60)
-            hrs, mins  = divmod(mins, 60)
-            timer_str  = (
-                f"{hrs:02d}:{mins:02d}:{secs:02d}" if hrs > 0
-                else f"{mins:02d}:{secs:02d}"
-            )
-            st.caption(f"Session duration: {timer_str}")
+        if st.session_state.get("session_start") is None:
+            st.session_state["session_start"] = time.time()
+        
+        start_time = st.session_state["session_start"]
+        elapsed = int(time.time() - start_time)
+        
+        mins, secs = divmod(elapsed, 60)
+        hrs, mins = divmod(mins, 60)
+        
+        timer_str = (
+            f"{hrs:02d}:{mins:02d}:{secs:02d}" if hrs > 0
+            else f"{mins:02d}:{secs:02d}"
+        )
+        
+        st.caption(f"Session duration: {timer_str}")
 
     with metrics_col:
         # Pull the latest inference result from the transformer
