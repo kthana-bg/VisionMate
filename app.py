@@ -65,7 +65,7 @@ def init_session_state():
         "user_id":                  None,
         "username":                 None,
         "monitoring_active":        False,
-        "session_start":            None,
+        "session_start":            0.0,
         "last_metric_save":         0,
         "processor":                None,
         "active_eye_model_name":    "Custom CNN",
