@@ -151,7 +151,9 @@ def _render_webrtc_monitoring(
             "credential": turn_pass,
         })
 
-    rtc_config = RTCConfiguration({"iceServers": ice_servers})
+    rtc_config = RTCConfiguration(
+        {"iceServers": ice_servers}
+    )
 
     # Load MediaPipe once
     face_lm, pose_lm = _get_landmarkers()
