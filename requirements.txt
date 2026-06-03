@@ -1,15 +1,20 @@
 # Core framework
 streamlit==1.36.0
 
+# WebRTC
 streamlit-webrtc==0.47.6
 aiortc==1.9.0
-av==10.0.0
+av==17.0.1
+
+# Computer vision
 opencv-python-headless==4.9.0.80
 mediapipe==0.10.14
+
+# Deep learning
 tensorflow-cpu==2.15.0
 tf-keras==2.15.1
 
-# Data processing
+# Data
 numpy==1.26.4
 pandas==2.2.2
 scikit-learn==1.4.2
@@ -23,4 +28,3 @@ plotly==5.22.0
 joblib==1.4.2
 h5py==3.11.0
 python-dotenv==1.0.1
-
