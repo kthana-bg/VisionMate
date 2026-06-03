@@ -169,7 +169,7 @@ def _render_webrtc_monitoring(
         return t
 
     # Session timer start
-    if "session_start" not in st.session_state:
+    if not st.session_state.get("session_start"):
         st.session_state["session_start"] = time.time()
 
     video_col, metrics_col = st.columns([2, 1])
@@ -194,7 +194,12 @@ def _render_webrtc_monitoring(
 
         # Session timer
         if "session_start" in st.session_state:
-            elapsed    = int(time.time() - st.session_state["session_start"])
+            start_time = st.session_state.get("session_start")
+            if start_time is None:
+                start_time = time.time()
+                st.session_state["session_start"] = start_time
+            
+            elapsed = int(time.time() - start_time)
             mins, secs = divmod(elapsed, 60)
             hrs, mins  = divmod(mins, 60)
             timer_str  = (
