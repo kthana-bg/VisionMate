@@ -1,28 +1,3 @@
-"""
-monitoring_tab.py  –  Live Monitoring Tab
-==========================================
-Architecture
-------------
-Browser  →  WebRTC (streamlit-webrtc)  →  VisionMateTransformer.recv()
-                                              ├─ MediaPipe face/pose landmarks
-                                              ├─ EAR-based eye status
-                                              ├─ Your .h5 eye model (CNN / MobileNetV2 / EfficientNetB0)
-                                              ├─ Your .h5 posture model (LSTM / YOLOv8-DNN)
-                                              └─ Annotated frame back to browser
-
-Every received frame is processed 100% in Python on the server.
-Your .h5 models run on every FRAME_SKIP-th frame to stay real-time.
-Metric cards are updated from transformer.get_result() on each Streamlit rerun.
-
-Why WebRTC works here
----------------------
-- streamlit-webrtc creates a direct peer-to-peer RTP stream that bypasses
-  the Streamlit websocket entirely, so it is immune to the websocket
-  timeout / firewall issue that broke the previous implementation.
-- The TURN server fallback (configured via environment variable) ensures
-  connectivity even behind strict corporate NAT.
-"""
-
 import os
 import sys
 import time
