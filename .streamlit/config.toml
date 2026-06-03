@@ -1,18 +1,12 @@
 [server]
 headless = true
-port = 8501
+port = 10000
 enableCORS = false
 enableXsrfProtection = false
 maxUploadSize = 50
 
 [browser]
 gatherUsageStats = false
-
-# WebRTC needs these timeouts relaxed on cloud deployments
-[server.websocket]
-# Default ping timeout is too short for WebRTC negotiation
-pingTimeout = 120
-pingInterval = 20
 
 [theme]
 base = "dark"
