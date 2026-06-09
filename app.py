@@ -1,28 +1,3 @@
-"""
-VisionMate - app.py
-====================
-Live monitoring uses st.camera_input instead of WebRTC.
-
-WHY st.camera_input instead of WebRTC
---------------------------------------
-WebRTC (streamlit-webrtc) requires ICE/STUN/TURN negotiation between
-the user's browser and the server.  On Render (and most cloud hosts)
-both sides are behind NAT, and the TURN relay is unreliable or blocked.
-The result is a camera widget that never connects.
-
-st.camera_input works over the standard Streamlit websocket — the same
-connection that already works perfectly for every other part of the app.
-The user clicks "Take Photo", the JPEG is sent to Python, your .keras
-models run on the server, and the annotated frame + metrics are shown
-back in the browser.  No STUN, no TURN, no peer-to-peer negotiation.
-
-The trade-off is that inference happens on each snapshot (user clicks
-the shutter) rather than on a continuous 30fps stream.  For an
-ergonomic monitor that checks posture every few seconds this is
-completely appropriate — and it works on every cloud host including
-Render free tier.
-"""
-
 import os
 os.environ["MEDIAPIPE_DISABLE_GPU"] = "1"
 os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "0"
