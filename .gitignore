@@ -36,3 +36,9 @@ verify_setup.py
 train_eye_models.py
 train_posture_models.py
 run_all_training.py
+.env.*
+*.env
+credentials.json
+*.pem
+*.key
+.credentials

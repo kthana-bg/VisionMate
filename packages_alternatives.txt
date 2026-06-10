@@ -1,0 +1,20 @@
+# Alternative packages.txt if t64 version doesn't work
+# Replace /app/packages.txt content with this if needed
+
+# Option 1: Minimal (safest)
+ffmpeg
+libsm6
+libxext6
+
+# Option 2: With glib (if Option 1 causes mediapipe issues)
+# Uncomment these:
+# ffmpeg
+# libsm6
+# libxext6
+# libglib2.0-0t64
+
+# Option 3: If t64 doesn't exist, try without glib
+# opencv-python-headless usually works without it
+# ffmpeg
+# libsm6
+# libxext6
