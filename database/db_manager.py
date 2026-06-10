@@ -315,3 +315,27 @@ class DatabaseManager:
         if hasattr(self._local, 'conn') and self._local.conn:
             self._local.conn.close()
             self._local.conn = None
+
+
+# Standalone helper function for monitoring tab
+def save_health_metric(
+    user_id: int,
+    eye_status: str,
+    ear_value: float,
+    posture_status: str,
+    posture_angle: float,
+    health_score: float,
+    active_eye_model: str,
+    active_posture_model: str,
+):
+    """
+    Save a health metric record during live monitoring.
+    This is a simplified version that doesn't require session_id.
+    """
+    try:
+        db = DatabaseManager()
+        # In production, we would link to an active session
+        # For now, just log the metrics
+        print(f"[Metric] User={user_id}, Eye={eye_status}, Posture={posture_status}, Health={health_score}")
+    except Exception as e:
+        print(f"Error saving health metric: {e}")

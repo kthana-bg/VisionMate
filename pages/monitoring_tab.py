@@ -135,20 +135,27 @@ def _render_webrtc_monitoring(
     """
     from streamlit_webrtc import webrtc_streamer, WebRtcMode, RTCConfiguration
 
+    # ── WebRTC Configuration for Streamlit Cloud ──
+    # Multiple STUN servers for better connectivity
+    ice_servers = [
+        {"urls": ["stun:stun.l.google.com:19302"]},
+        {"urls": ["stun:stun1.l.google.com:19302"]},
+        {"urls": ["stun:stun2.l.google.com:19302"]},
+        {"urls": ["stun:stun.services.mozilla.com:3478"]},
+    ]
+    
+    # Optional TURN server from environment (for restricted networks)
     turn_url  = os.environ.get("TURN_URL",  "")
     turn_user = os.environ.get("TURN_USER", "")
     turn_pass = os.environ.get("TURN_CREDENTIAL", "")
-
-    ice_servers = [
-        {"urls": ["stun:stun.l.google.com:19302"]}
-    ]
     
-    if turn_url:
+    if turn_url and turn_user and turn_pass:
         ice_servers.append({
             "urls": [turn_url],
             "username": turn_user,
             "credential": turn_pass,
         })
+        print(f"Using TURN server: {turn_url}")
     
     rtc_config = RTCConfiguration({"iceServers": ice_servers})
 

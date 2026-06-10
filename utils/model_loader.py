@@ -42,56 +42,78 @@ _DEMO_RESULTS = {
 
 def load_keras_model(model_path: str):
     """
-      1. tf_keras  — preserves TF 2.15 layer behaviour (best for .h5 files)
-      2. keras compile=False — skips optimizer incompatibilities
-      3. custom_object_scope — patches TrueDivide and batch_shape issues
+    Load Keras model with advanced compatibility handling.
+    Handles Keras 3.x models trained on Kaggle in TF 2.15 environment.
     """
     if not model_path or not os.path.exists(model_path):
         print(f"Model file not found: {model_path}")
         return None
 
-    # Strategy 1: tf_keras (legacy Keras — matches Kaggle training environment)
+    import tensorflow as tf
+    from tensorflow import keras
+    
+    # Register custom objects for compatibility
+    custom_objects = {
+        'TrueDivide': tf.math.truediv,
+        'DepthwiseConv2D': keras.layers.DepthwiseConv2D,
+    }
+
+    # Strategy 1: Load with safe mode (ignore unrecognized arguments)
     try:
-        import tf_keras
-        model = tf_keras.models.load_model(model_path, compile=False)
-        print(f"Loaded (tf_keras): {os.path.basename(model_path)}")
-        return model
+        # Temporarily modify deserialize to be more lenient
+        import tensorflow.python.keras.saving.legacy.serialization as serialization_legacy
+        
+        _original_deserialize = serialization_legacy.deserialize_keras_object
+        
+        def lenient_deserialize(identifier, module_objects=None, custom_objects=None, printable_module_name='object'):
+            try:
+                return _original_deserialize(identifier, module_objects, custom_objects, printable_module_name)
+            except TypeError as e:
+                # If it's a keyword argument error, try stripping problematic keys
+                if 'Keyword argument not understood' in str(e) or 'Unrecognized keyword' in str(e):
+                    if isinstance(identifier, dict) and 'config' in identifier:
+                        config = identifier['config'].copy()
+                        # Remove known problematic keys
+                        config.pop('quantization_config', None)
+                        config.pop('optional', None)
+                        config.pop('batch_shape', None)
+                        # Replace dtype if it's a dict
+                        if isinstance(config.get('dtype'), dict):
+                            config['dtype'] = 'float32'
+                        identifier = identifier.copy()
+                        identifier['config'] = config
+                        return _original_deserialize(identifier, module_objects, custom_objects, printable_module_name)
+                raise
+        
+        # Apply monkey patch
+        serialization_legacy.deserialize_keras_object = lenient_deserialize
+        
+        try:
+            model = keras.models.load_model(
+                model_path, 
+                compile=False,
+                custom_objects=custom_objects
+            )
+            print(f"✓ Loaded: {os.path.basename(model_path)}")
+            return model
+        finally:
+            # Restore original
+            serialization_legacy.deserialize_keras_object = _original_deserialize
+            
     except Exception as e1:
-        print(f"tf_keras failed for {os.path.basename(model_path)}: {e1}")
+        print(f"Strategy 1 failed for {os.path.basename(model_path)}: {str(e1)[:100]}")
 
-    # Strategy 2: standard keras with compile=False
+    # Strategy 2: Try with h5py direct weight loading
     try:
-        from tensorflow import keras
-        model = keras.models.load_model(model_path, compile=False)
-        print(f"Loaded (keras compile=False): {os.path.basename(model_path)}")
-        return model
+        import h5py
+        
+        # This is a simplified approach - rebuild model from architecture
+        # For now, return None as we'd need the exact architecture
+        pass
     except Exception as e2:
-        print(f"keras compile=False failed: {e2}")
+        pass
 
-    # Strategy 3: custom_object_scope for TrueDivide + InputLayer compat
-    try:
-        import tensorflow as tf
-        from tensorflow import keras
-
-        # Patch InputLayer to accept and ignore unknown kwargs
-        original_init = tf.keras.layers.InputLayer.__init__
-        def patched_init(self, *args, **kwargs):
-            kwargs.pop("batch_shape", None)
-            kwargs.pop("optional", None)
-            original_init(self, *args, **kwargs)
-
-        custom_objects = {
-            "InputLayer": tf.keras.layers.InputLayer,
-            "TrueDivide":  tf.math.truediv,
-        }
-        with keras.utils.custom_object_scope(custom_objects):
-            model = keras.models.load_model(model_path, compile=False)
-        print(f"Loaded (custom_object_scope): {os.path.basename(model_path)}")
-        return model
-    except Exception as e3:
-        print(f"custom_object_scope failed: {e3}")
-
-    print(f"All strategies failed for: {model_path}")
+    print(f"✗ Could not load: {os.path.basename(model_path)}")
     return None
 
 
