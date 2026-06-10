@@ -4,11 +4,12 @@ services:
     runtime: python
     region: singapore
     plan: free
-    pythonVersion: "3.11.9"
+    pythonVersion: "3.9"
 
     buildCommand: >-
       apt-get update -qq &&
-      apt-get install -y -qq libgl1 libglib2.0-0 libsrtp2-1 libopus0 &&
+      apt-get install -y -qq ffmpeg libsm6 libxext6 &&
+      pip install --upgrade pip &&
       pip install -r requirements.txt
 
     startCommand: >-
@@ -16,15 +17,23 @@ services:
       --server.port $PORT
       --server.address 0.0.0.0
       --server.headless true
+      --server.enableCORS false
+      --server.enableXsrfProtection false
 
     envVars:
       - key: PYTHON_VERSION
-        value: "3.11.9"
+        value: "3.9"
       - key: STREAMLIT_SERVER_HEADLESS
         value: "true"
       - key: STREAMLIT_BROWSER_GATHER_USAGE_STATS
         value: "false"
-      - key: DEBIAN_FRONTEND
-        value: noninteractive
+      - key: MEDIAPIPE_DISABLE_GPU
+        value: "1"
+      - key: TF_CPP_MIN_LOG_LEVEL
+        value: "3"
+      - key: OPENCV_IO_ENABLE_OPENEXR
+        value: "0"
+
+    healthCheckPath: /_stcore/health
 
     autoDeploy: true
