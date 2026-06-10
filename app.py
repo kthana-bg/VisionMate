@@ -134,84 +134,349 @@ _init_state()
 # ------------------------------------------------------------------ #
 
 def _show_auth_page():
-    st.markdown('<div class="main-header">VisionMate</div>', unsafe_allow_html=True)
-    st.markdown(
-        '<div style="text-align:center;color:rgba(255,255,255,0.7);">'
-        'Real-time Eye Strain and Posture Coach</div>',
-        unsafe_allow_html=True,
-    )
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    col_login, col_reg = st.columns(2, gap="large")
-
-    # ---- Login ----
-    with col_login:
-        st.markdown("#### Login")
-        login_img = st.camera_input("Look at camera for login", key="login_cam")
-
-        if st.button("Login with Face", type="primary",
-                     use_container_width=True, key="login_btn"):
+    # Modern dark theme styling
+    st.markdown("""
+    <style>
+    /* Dark theme base */
+    .stApp {
+        background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 50%, #0f1419 100%);
+    }
+    
+    /* Header styling */
+    .auth-header {
+        text-align: center;
+        padding: 2rem 0 1rem 0;
+    }
+    .auth-title {
+        font-size: 3rem;
+        font-weight: 700;
+        background: linear-gradient(135deg, #00ff87 0%, #60efff 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin-bottom: 0.5rem;
+    }
+    .auth-subtitle {
+        color: #8b92b0;
+        font-size: 1.1rem;
+        margin-bottom: 2rem;
+    }
+    
+    /* Tab styling */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 2rem;
+        background-color: transparent;
+        border-bottom: 2px solid #2a3042;
+        padding: 0 2rem;
+    }
+    .stTabs [data-baseweb="tab"] {
+        height: 60px;
+        background-color: transparent;
+        border: none;
+        color: #8b92b0;
+        font-size: 1.1rem;
+        font-weight: 500;
+        padding: 0 2rem;
+    }
+    .stTabs [aria-selected="true"] {
+        background-color: transparent;
+        color: #00ff87;
+        border-bottom: 3px solid #00ff87;
+    }
+    
+    /* Card styling */
+    .auth-card {
+        background: rgba(26, 31, 58, 0.6);
+        backdrop-filter: blur(20px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 16px;
+        padding: 2rem;
+        margin: 1rem 0;
+    }
+    
+    /* Input styling */
+    .stTextInput input {
+        background-color: #1e2430 !important;
+        border: 1px solid #2a3042 !important;
+        border-radius: 8px !important;
+        color: #ffffff !important;
+        padding: 0.8rem 1rem !important;
+        font-size: 1rem !important;
+    }
+    .stTextInput input:focus {
+        border-color: #00ff87 !important;
+        box-shadow: 0 0 0 1px #00ff87 !important;
+    }
+    
+    /* Button styling */
+    .stButton button {
+        width: 100%;
+        background: linear-gradient(135deg, #00ff87 0%, #60efff 100%);
+        color: #0a0e27;
+        border: none;
+        border-radius: 8px;
+        padding: 0.8rem 2rem;
+        font-size: 1.1rem;
+        font-weight: 600;
+        transition: all 0.3s ease;
+        margin-top: 1rem;
+    }
+    .stButton button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 20px rgba(0, 255, 135, 0.3);
+    }
+    
+    /* Camera section */
+    .camera-section {
+        background: #1e2430;
+        border: 2px solid #2a3042;
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin: 1rem 0;
+        text-align: center;
+    }
+    
+    /* Status messages */
+    .status-success {
+        background: rgba(0, 255, 135, 0.1);
+        border-left: 4px solid #00ff87;
+        padding: 1rem;
+        border-radius: 8px;
+        color: #00ff87;
+        margin: 1rem 0;
+    }
+    .status-error {
+        background: rgba(255, 82, 82, 0.1);
+        border-left: 4px solid #ff5252;
+        padding: 1rem;
+        border-radius: 8px;
+        color: #ff5252;
+        margin: 1rem 0;
+    }
+    .status-warning {
+        background: rgba(255, 193, 7, 0.1);
+        border-left: 4px solid #ffc107;
+        padding: 1rem;
+        border-radius: 8px;
+        color: #ffc107;
+        margin: 1rem 0;
+    }
+    
+    /* Section labels */
+    .section-label {
+        color: #8b92b0;
+        font-size: 0.9rem;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        margin-bottom: 0.5rem;
+        font-weight: 600;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    # Header
+    st.markdown('<div class="auth-header">', unsafe_allow_html=True)
+    st.markdown('<div class="auth-title">VisionMate</div>', unsafe_allow_html=True)
+    st.markdown('<div class="auth-subtitle">AI-Powered Eye Strain & Posture Monitor</div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Tabs for Login and Register
+    tab1, tab2 = st.tabs(["🔐 Login", "✨ Create Account"])
+    
+    # ==================== LOGIN TAB ====================
+    with tab1:
+        st.markdown('<div class="auth-card">', unsafe_allow_html=True)
+        st.markdown('<p class="section-label">Face Authentication</p>', unsafe_allow_html=True)
+        st.markdown('<div class="camera-section">', unsafe_allow_html=True)
+        
+        login_img = st.camera_input(
+            "Position your face in the camera", 
+            key="login_cam",
+            label_visibility="collapsed"
+        )
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        if st.button("🔓 Login with Face", key="login_btn", type="primary"):
             if login_img is None:
-                st.warning("Please capture a photo first.")
+                st.markdown(
+                    '<div class="status-warning">⚠️ Please capture your face first</div>',
+                    unsafe_allow_html=True
+                )
             else:
-                frame = _decode_camera_image(login_img)
-                auth  = st.session_state.auth
-                emb   = auth.extract_embedding(frame)
-
-                if emb is None:
-                    st.error("No face detected. Try better lighting.")
-                else:
-                    reduced = auth.reduce_dimension(emb)
-                    users   = st.session_state.db.get_all_users()
-                    best_match, best_score = None, 0
-
-                    for u in users:
-                        stored = np.array(u["face_embedding"])
-                        score  = auth.compare_embeddings(reduced, stored)
-                        if score > best_score and score > 0.75:
-                            best_score = score
-                            best_match = u
-
-                    if best_match:
-                        _do_login(best_match)
+                with st.spinner("🔍 Recognizing your face..."):
+                    frame = _decode_camera_image(login_img)
+                    auth  = st.session_state.auth
+                    
+                    if auth is None:
+                        st.error("Authentication system not initialized")
+                        return
+                    
+                    emb   = auth.extract_embedding(frame)
+                    
+                    if emb is None:
+                        st.markdown(
+                            '<div class="status-error">❌ No face detected. Please ensure:<br>'
+                            '• Good lighting<br>• Face clearly visible<br>• Look directly at camera</div>',
+                            unsafe_allow_html=True
+                        )
                     else:
-                        st.error("Face not recognised. Please register first.")
-
-    # ---- Register ----
-    with col_reg:
-        st.markdown("#### Create Account")
-        name    = st.text_input("Full Name", placeholder="Enter your full name")
-        reg_img = st.camera_input("Capture face", key="reg_cam")
-
-        if st.button("Complete Registration", type="primary",
-                     use_container_width=True, key="reg_btn"):
-            if not name:
-                st.warning("Please enter your full name.")
-            elif reg_img is None:
-                st.warning("Please capture a photo.")
-            else:
-                frame = _decode_camera_image(reg_img)
-                auth  = st.session_state.auth
-                emb   = auth.extract_embedding(frame)
-
-                if emb is None:
-                    st.error("No face detected. Try better lighting.")
-                else:
-                    # Check for duplicate face
-                    reduced = auth.reduce_dimension(emb)
-                    users   = st.session_state.db.get_all_users()
-                    for u in users:
-                        stored = np.array(u["face_embedding"])
-                        score  = auth.compare_embeddings(reduced, stored)
-                        if score > 0.75:
-                            st.error(
-                                f"This face is already registered as "
-                                f"'{u['user_name']}'. Please login instead."
+                        reduced = auth.reduce_dimension(emb)
+                        users   = st.session_state.db.get_all_users()
+                        best_match, best_score = None, 0
+                        
+                        for u in users:
+                            stored = np.array(u["face_embedding"])
+                            score  = auth.compare_embeddings(reduced, stored)
+                            if score > best_score and score > 0.75:
+                                best_score = score
+                                best_match = u
+                        
+                        if best_match:
+                            st.markdown(
+                                f'<div class="status-success">✅ Welcome back, {best_match["user_name"]}!</div>',
+                                unsafe_allow_html=True
                             )
-                            break
+                            time.sleep(1)
+                            _do_login(best_match)
+                        else:
+                            st.markdown(
+                                '<div class="status-error">❌ Face not recognized<br>'
+                                'Please register first if you\'re a new user</div>',
+                                unsafe_allow_html=True
+                            )
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        # Info section
+        st.markdown("""
+        <div style="margin-top: 2rem; padding: 1.5rem; background: rgba(0, 255, 135, 0.05); 
+                    border-radius: 12px; border: 1px solid rgba(0, 255, 135, 0.2);">
+            <h4 style="color: #00ff87; margin-bottom: 1rem;">ℹ️ How Face Login Works</h4>
+            <ul style="color: #8b92b0; line-height: 1.8;">
+                <li>Secure face recognition using AI</li>
+                <li>No passwords needed</li>
+                <li>Instant authentication</li>
+                <li>Your face data is encrypted and stored locally</li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # ==================== REGISTER TAB ====================
+    with tab2:
+        st.markdown('<div class="auth-card">', unsafe_allow_html=True)
+        st.markdown('<p class="section-label">Personal Information</p>', unsafe_allow_html=True)
+        
+        name = st.text_input(
+            "Full Name",
+            placeholder="Enter your full name",
+            key="reg_name"
+        )
+        
+        st.markdown('<p class="section-label" style="margin-top: 1.5rem;">Face Registration</p>', unsafe_allow_html=True)
+        st.markdown('<div class="camera-section">', unsafe_allow_html=True)
+        
+        reg_img = st.camera_input(
+            "Capture your face for registration",
+            key="reg_cam",
+            label_visibility="collapsed"
+        )
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        # Registration tips
+        st.markdown("""
+        <div style="background: rgba(96, 239, 255, 0.1); border-radius: 8px; padding: 1rem; margin: 1rem 0;">
+            <p style="color: #60efff; font-weight: 600; margin-bottom: 0.5rem;">📸 Tips for best results:</p>
+            <ul style="color: #8b92b0; font-size: 0.9rem; margin: 0;">
+                <li>Ensure good lighting</li>
+                <li>Remove glasses if possible</li>
+                <li>Look directly at the camera</li>
+                <li>Keep a neutral expression</li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        if st.button("✨ Create Account", key="reg_btn", type="primary"):
+            if not name or len(name.strip()) < 2:
+                st.markdown(
+                    '<div class="status-warning">⚠️ Please enter your full name (at least 2 characters)</div>',
+                    unsafe_allow_html=True
+                )
+            elif reg_img is None:
+                st.markdown(
+                    '<div class="status-warning">⚠️ Please capture your face photo</div>',
+                    unsafe_allow_html=True
+                )
+            else:
+                with st.spinner("🤖 Processing your face data..."):
+                    frame = _decode_camera_image(reg_img)
+                    auth  = st.session_state.auth
+                    
+                    if auth is None:
+                        st.error("Authentication system not initialized")
+                        return
+                    
+                    emb   = auth.extract_embedding(frame)
+                    
+                    if emb is None:
+                        st.markdown(
+                            '<div class="status-error">❌ No face detected. Please ensure:<br>'
+                            '• Good lighting<br>• Face clearly visible<br>• Look directly at camera</div>',
+                            unsafe_allow_html=True
+                        )
                     else:
-                        st.session_state.db.create_user(name, reduced.tolist())
-                        st.success("Registration successful. You can now log in.")
+                        # Check for duplicate face registration
+                        reduced = auth.reduce_dimension(emb)
+                        users   = st.session_state.db.get_all_users()
+                        
+                        duplicate_found = False
+                        for u in users:
+                            stored = np.array(u["face_embedding"])
+                            score  = auth.compare_embeddings(reduced, stored)
+                            if score > 0.75:
+                                duplicate_found = True
+                                st.markdown(
+                                    f'<div class="status-error">❌ Face Already Registered!<br><br>'
+                                    f'This face is already registered as <strong>{u["user_name"]}</strong><br><br>'
+                                    f'Each person can only register once. Please use the Login tab to sign in.</div>',
+                                    unsafe_allow_html=True
+                                )
+                                break
+                        
+                        if not duplicate_found:
+                            # No duplicate found, proceed with registration
+                            try:
+                                st.session_state.db.create_user(name.strip(), reduced.tolist())
+                                st.markdown(
+                                    f'<div class="status-success">✅ Account Created Successfully!<br><br>'
+                                    f'Welcome, <strong>{name.strip()}</strong>!<br><br>'
+                                    f'You can now login using the Login tab.</div>',
+                                    unsafe_allow_html=True
+                                )
+                                st.balloons()
+                                time.sleep(2)
+                                st.rerun()
+                            except Exception as e:
+                                st.markdown(
+                                    f'<div class="status-error">❌ Registration failed: {str(e)}</div>',
+                                    unsafe_allow_html=True
+                                )
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        # Security info
+        st.markdown("""
+        <div style="margin-top: 2rem; padding: 1.5rem; background: rgba(96, 239, 255, 0.05); 
+                    border-radius: 12px; border: 1px solid rgba(96, 239, 255, 0.2);">
+            <h4 style="color: #60efff; margin-bottom: 1rem;">🔒 Privacy & Security</h4>
+            <ul style="color: #8b92b0; line-height: 1.8;">
+                <li><strong>One Face, One Account:</strong> Each face can only be registered once</li>
+                <li><strong>Encrypted Storage:</strong> Your face data is securely encrypted</li>
+                <li><strong>Local Processing:</strong> All data stays on the server</li>
+                <li><strong>No Third Parties:</strong> Your data is never shared</li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
 
 
 def _do_login(user: dict):
