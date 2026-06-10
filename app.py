@@ -60,7 +60,32 @@ st.markdown("""
 @st.cache_resource(show_spinner="Loading AI models...")
 def _load_comparator():
     """Load .keras models once per server session."""
-    return ModelComparator()
+    try:
+        comparator = ModelComparator()
+        return comparator
+    except Exception as e:
+        st.error(f"Failed to load models: {e}")
+        # Return a minimal comparator that won't crash the app
+        class DummyComparator:
+            def __init__(self):
+                self.face_landmarker = None
+                self.pose_landmarker = None
+                self.eye_models = {}
+                self.posture_models = {}
+                self.active_eye_model = "C1"
+                self.active_posture_model = "C2"
+            def get_model_status(self):
+                return {"active_eye": "C1", "active_posture": "C2",
+                        "C1_loaded": False, "C2_loaded": False,
+                        "B1_loaded": False, "A1_loaded": False,
+                        "B2_loaded": False, "A2_loaded": False}
+            def set_active_models(self, eye, posture):
+                pass
+            def process_frame(self, frame):
+                return {"eye": {"C1": {"classification": "UNKNOWN", "fatigue_score": 0, "latency_ms": 0, "ear": 0}},
+                        "posture": {"C2": {"status": "UNKNOWN", "slouching_prob": 0, "latency_ms": 0, "angle_y": 0}},
+                        "eye_consensus": "UNKNOWN", "posture_consensus": "UNKNOWN", "health_score": 50}
+        return DummyComparator()
 
 
 def _init_state():
@@ -69,8 +94,8 @@ def _init_state():
         "user_id":        None,
         "user_name":      None,
         "session_id":     None,
-        "db":             DatabaseManager(),
-        "auth":           FaceAuthenticator(),
+        "db":             None,  # Initialize lazily
+        "auth":           None,  # Initialize lazily
         # live monitoring state
         "live_eye":       "NORMAL",
         "live_posture":   "GOOD",
@@ -86,6 +111,19 @@ def _init_state():
     for k, v in defaults.items():
         if k not in st.session_state:
             st.session_state[k] = v
+    
+    # Lazy initialize heavy objects
+    if st.session_state.db is None:
+        try:
+            st.session_state.db = DatabaseManager()
+        except Exception as e:
+            st.error(f"Database initialization failed: {e}")
+    
+    if st.session_state.auth is None:
+        try:
+            st.session_state.auth = FaceAuthenticator()
+        except Exception as e:
+            st.error(f"Face authenticator initialization failed: {e}")
 
 
 _init_state()

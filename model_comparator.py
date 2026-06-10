@@ -55,12 +55,26 @@ class ModelComparator:
         """Load all models and MediaPipe landmarkers at initialization."""
         print("Loading ModelComparator...")
         
-        # Load MediaPipe for landmark detection
-        self.face_landmarker, self.pose_landmarker = load_mediapipe_landmarkers()
+        try:
+            # Load MediaPipe for landmark detection
+            print("Loading MediaPipe landmarkers...")
+            self.face_landmarker, self.pose_landmarker = load_mediapipe_landmarkers()
+            print("MediaPipe loaded successfully")
+        except Exception as e:
+            print(f"Warning: MediaPipe loading failed: {e}")
+            self.face_landmarker, self.pose_landmarker = None, None
         
-        # Load all trained models
-        self.eye_models = load_all_eye_models()
-        self.posture_models = load_all_posture_models()
+        try:
+            # Load all trained models
+            print("Loading trained models...")
+            self.eye_models = load_all_eye_models()
+            self.posture_models = load_all_posture_models()
+            print(f"Eye models loaded: {list(self.eye_models.keys())}")
+            print(f"Posture models loaded: {list(self.posture_models.keys())}")
+        except Exception as e:
+            print(f"Warning: Model loading failed: {e}")
+            self.eye_models = {}
+            self.posture_models = {}
         
         # Active model selection (default: C1 for eye, C2 for posture)
         self.active_eye_model = "C1"
@@ -69,8 +83,7 @@ class ModelComparator:
         # Frame counter for EAR consecutive frames logic
         self.ear_consec_counter = 0
         
-        print(f"Eye models loaded: {list(self.eye_models.keys())}")
-        print(f"Posture models loaded: {list(self.posture_models.keys())}")
+        print("ModelComparator initialization complete")
     
     def set_active_models(self, eye_model_key: str, posture_model_key: str):
         """Set which models to use for live monitoring."""
