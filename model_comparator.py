@@ -294,16 +294,11 @@ class ModelComparator:
                 # LSTM or DNN model
                 start_time = time.perf_counter()
                 
-                # Extract feature vector
+                # Extract feature vector (3 features: angle_y, angle_z, emg)
                 feature_vector = extract_landmark_feature_vector(landmarks)
                 
-                # Prepare input based on model architecture
-                if "LSTM" in active_model_name:
-                    # LSTM expects (batch, timesteps, features)
-                    input_tensor = feature_vector.reshape(1, 1, -1)
-                else:
-                    # DNN expects (batch, features)
-                    input_tensor = feature_vector.reshape(1, -1)
+                # Custom LSTM expects (batch, 3) - the model internally reshapes to (batch, 1, 3)
+                input_tensor = feature_vector.reshape(1, -1)
                 
                 prediction = active_model.predict(input_tensor, verbose=0)[0]
                 

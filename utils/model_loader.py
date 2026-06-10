@@ -40,10 +40,10 @@ _DEMO_RESULTS = {
 }
 
 
-def load_keras_model(model_path: str):
+def load_keras_model(model_path: str, model_name: str = None):
     """
-    Load Keras model with advanced compatibility handling.
-    Handles Keras 3.x models trained on Kaggle in TF 2.15 environment.
+    Load Keras model using weight-only approach with correct architecture.
+    Handles Keras 3.x models by recreating architecture and loading weights.
     """
     if not model_path or not os.path.exists(model_path):
         print(f"Model file not found: {model_path}")
@@ -52,66 +52,48 @@ def load_keras_model(model_path: str):
     import tensorflow as tf
     from tensorflow import keras
     
-    # Register custom objects for compatibility
-    custom_objects = {
-        'TrueDivide': tf.math.truediv,
-        'DepthwiseConv2D': keras.layers.DepthwiseConv2D,
-    }
-
-    # Strategy 1: Load with safe mode (ignore unrecognized arguments)
+    # Try to import architecture builder
     try:
-        # Temporarily modify deserialize to be more lenient
-        import tensorflow.python.keras.saving.legacy.serialization as serialization_legacy
-        
-        _original_deserialize = serialization_legacy.deserialize_keras_object
-        
-        def lenient_deserialize(identifier, module_objects=None, custom_objects=None, printable_module_name='object'):
-            try:
-                return _original_deserialize(identifier, module_objects, custom_objects, printable_module_name)
-            except TypeError as e:
-                # If it's a keyword argument error, try stripping problematic keys
-                if 'Keyword argument not understood' in str(e) or 'Unrecognized keyword' in str(e):
-                    if isinstance(identifier, dict) and 'config' in identifier:
-                        config = identifier['config'].copy()
-                        # Remove known problematic keys
-                        config.pop('quantization_config', None)
-                        config.pop('optional', None)
-                        config.pop('batch_shape', None)
-                        # Replace dtype if it's a dict
-                        if isinstance(config.get('dtype'), dict):
-                            config['dtype'] = 'float32'
-                        identifier = identifier.copy()
-                        identifier['config'] = config
-                        return _original_deserialize(identifier, module_objects, custom_objects, printable_module_name)
-                raise
-        
-        # Apply monkey patch
-        serialization_legacy.deserialize_keras_object = lenient_deserialize
-        
+        from utils.model_architectures import (
+            create_custom_cnn_architecture,
+            create_custom_lstm_architecture,
+        )
+    except ImportError:
+        print("Warning: model_architectures module not found")
+        create_custom_cnn_architecture = None
+        create_custom_lstm_architecture = None
+
+    # Strategy 1: Load weights into fresh architecture (BEST for Keras 3.x models)
+    if model_name and create_custom_cnn_architecture and create_custom_lstm_architecture:
         try:
-            model = keras.models.load_model(
-                model_path, 
-                compile=False,
-                custom_objects=custom_objects
-            )
-            print(f"✓ Loaded: {os.path.basename(model_path)}")
-            return model
-        finally:
-            # Restore original
-            serialization_legacy.deserialize_keras_object = _original_deserialize
+            # Create fresh architecture
+            if "CNN" in model_name or "custom_cnn" in model_path:
+                print(f"Building Custom CNN architecture...")
+                model = create_custom_cnn_architecture()
+            elif "LSTM" in model_name or "custom_lstm" in model_path:
+                print(f"Building Custom LSTM architecture...")
+                model = create_custom_lstm_architecture()
+            else:
+                # For transfer learning models, we can't easily recreate architecture
+                model = None
             
-    except Exception as e1:
-        print(f"Strategy 1 failed for {os.path.basename(model_path)}: {str(e1)[:100]}")
+            if model is not None:
+                # Try to load weights
+                print(f"Loading weights from {os.path.basename(model_path)}...")
+                model.load_weights(model_path, skip_mismatch=False, by_name=False)
+                print(f"✓ Successfully loaded: {os.path.basename(model_path)}")
+                return model
+                
+        except Exception as e:
+            print(f"Weight loading failed for {os.path.basename(model_path)}: {str(e)[:150]}")
 
-    # Strategy 2: Try with h5py direct weight loading
+    # Strategy 2: Try direct load with compile=False
     try:
-        import h5py
-        
-        # This is a simplified approach - rebuild model from architecture
-        # For now, return None as we'd need the exact architecture
-        pass
-    except Exception as e2:
-        pass
+        model = keras.models.load_model(model_path, compile=False)
+        print(f"✓ Loaded (direct): {os.path.basename(model_path)}")
+        return model
+    except Exception as e:
+        print(f"Direct load failed: {str(e)[:100]}")
 
     print(f"✗ Could not load: {os.path.basename(model_path)}")
     return None
@@ -120,14 +102,14 @@ def load_keras_model(model_path: str):
 def load_all_eye_models() -> dict:
     models = {}
     for name, path in EYE_MODEL_PATHS.items():
-        models[name] = load_keras_model(path)
+        models[name] = load_keras_model(path, model_name=name)
     return models
 
 
 def load_all_posture_models() -> dict:
     models = {}
     for name, path in POSTURE_MODEL_PATHS.items():
-        models[name] = load_keras_model(path) if path else None
+        models[name] = load_keras_model(path, model_name=name) if path else None
     return models
 
 

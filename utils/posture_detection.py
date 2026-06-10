@@ -91,34 +91,42 @@ def classify_posture_by_angle(angle: float) -> str:
 
 def extract_landmark_feature_vector(landmarks: dict) -> np.ndarray:
     """
-    Build a flat feature vector from landmark coordinates.
-    Used as input for LSTM/DNN posture models.
-    Normalizes all coordinates relative to shoulder midpoint so the
-    feature is scale-invariant.
+    Extract the 3 features required by Custom LSTM model: angle_y, angle_z, emg.
+    
+    angle_y: Forward/backward neck tilt (sagittal plane)
+    angle_z: Left/right neck tilt (frontal plane)  
+    emg: Proxy for muscle activity (shoulder symmetry)
+    
+    These match the training data features from the LSTM notebook.
     """
+    # Calculate midpoints
+    ear_mid_x = (landmarks["left_ear"][0] + landmarks["right_ear"][0]) / 2.0
+    ear_mid_y = (landmarks["left_ear"][1] + landmarks["right_ear"][1]) / 2.0
+    
     shoulder_mid_x = (landmarks["left_shoulder"][0] + landmarks["right_shoulder"][0]) / 2.0
     shoulder_mid_y = (landmarks["left_shoulder"][1] + landmarks["right_shoulder"][1]) / 2.0
-
-    # Shoulder width used for normalization
-    shoulder_width = max(
-        abs(landmarks["left_shoulder"][0] - landmarks["right_shoulder"][0]),
-        1
-    )
-
-    points = [
-        landmarks["nose"],
-        landmarks["left_ear"],
-        landmarks["right_ear"],
-        landmarks["left_shoulder"],
-        landmarks["right_shoulder"],
-    ]
-
-    features = []
-    for (x, y) in points:
-        features.append((x - shoulder_mid_x) / shoulder_width)
-        features.append((y - shoulder_mid_y) / shoulder_width)
-
-    return np.array(features, dtype=np.float32)
+    
+    # angle_y: Forward/backward lean (neck tilt in Y)
+    # Positive = leaning forward, Negative = leaning back
+    dx = ear_mid_x - shoulder_mid_x
+    dy = shoulder_mid_y - ear_mid_y  # inverted Y axis
+    angle_y = math.degrees(math.atan2(abs(dx), max(dy, 1)))
+    
+    # angle_z: Left/right tilt (neck lateral deviation in Z)
+    # Calculate asymmetry between left and right ear-to-shoulder distances
+    left_ear_shoulder_dy = landmarks["left_shoulder"][1] - landmarks["left_ear"][1]
+    right_ear_shoulder_dy = landmarks["right_shoulder"][1] - landmarks["right_ear"][1]
+    asymmetry = left_ear_shoulder_dy - right_ear_shoulder_dy
+    shoulder_width = abs(landmarks["left_shoulder"][0] - landmarks["right_shoulder"][0])
+    angle_z = (asymmetry / max(shoulder_width, 1)) * 45  # normalize to ~0-45 degree range
+    
+    # emg: Proxy for muscle tension using shoulder symmetry
+    # In real setup this would be EMG sensor data
+    # Here we use shoulder position variance as a proxy
+    shoulder_y_diff = abs(landmarks["left_shoulder"][1] - landmarks["right_shoulder"][1])
+    emg = shoulder_y_diff / max(shoulder_width, 1) * 100  # normalized to 0-100 range
+    
+    return np.array([angle_y, angle_z, emg], dtype=np.float32)
 
 
 def run_posture_model_inference(model, feature_vector: np.ndarray, model_name: str) -> dict:
